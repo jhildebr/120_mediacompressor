@@ -106,7 +106,7 @@ export default function Home() {
                   <h3 className="font-semibold text-gray-900">Detailed Metadata</h3>
                 </div>
                 <p className="text-gray-600 text-sm">
-                  View comprehensive file information including dimensions, codecs, compression ratios, and download links.
+                  View comprehensive file comparison including compression ratios, and download the optimized compressed file.
                 </p>
               </div>
             </div>
@@ -146,7 +146,7 @@ export default function Home() {
                 <div className="flex items-center space-x-2">
                   <div className="h-2 w-2 bg-green-500 rounded-full"></div>
                   <span className="text-green-700 font-medium">
-                    File uploaded successfully!
+                    File uploaded successfully! Processing will begin automatically.
                   </span>
                 </div>
                 <button

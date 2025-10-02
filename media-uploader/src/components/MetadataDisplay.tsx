@@ -207,15 +207,7 @@ export default function MetadataDisplay({
             </div>
           </div>
           <div className="mt-4">
-            <a
-              href={metadata.original.url}
-              target="_blank"
-              rel="noopener noreferrer"
-              className="inline-flex items-center px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors"
-            >
-              <Download className="h-4 w-4 mr-2" />
-              Download Original
-            </a>
+            <span className="text-sm text-gray-500">Original file preserved for reference</span>
           </div>
         </div>
       )}
@@ -223,28 +215,21 @@ export default function MetadataDisplay({
       {/* Processed File Details */}
       {metadata?.processed && (
         <div className="bg-white rounded-lg shadow-sm border p-6">
-          <h3 className="text-lg font-semibold mb-4">Processed File Details</h3>
-          <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-            <div>
-              <span className="text-sm text-gray-500">Size:</span>
-              <p className="font-medium">{formatFileSize(metadata.processed.size)}</p>
-            </div>
-            <div>
-              <span className="text-sm text-gray-500">Content Type:</span>
-              <p className="font-medium">{metadata.processed.contentType}</p>
-            </div>
-            <div>
-              <span className="text-sm text-gray-500">Last Modified:</span>
-              <p className="font-medium">{new Date(metadata.processed.lastModified).toLocaleString()}</p>
-            </div>
-            <div>
-              <span className="text-sm text-gray-500">Format:</span>
-              <p className="font-medium">{metadata.processed.contentType.split('/')[1]?.toUpperCase()}</p>
-            </div>
+          <div className="flex items-center justify-between mb-4">
+            <h3 className="text-lg font-semibold">✅ Compressed File Ready</h3>
+            <a
+              href={metadata.processed.url}
+              target="_blank"
+              rel="noopener noreferrer"
+              className="inline-flex items-center px-4 py-2 bg-green-600 text-white rounded-lg hover:bg-green-700 transition-colors"
+            >
+              <Download className="h-4 w-4 mr-2" />
+              Download Compressed File
+            </a>
           </div>
           
           {compressionRatio > 0 && (
-            <div className="mt-4 p-4 bg-green-50 border border-green-200 rounded-lg">
+            <div className="mb-6 p-4 bg-green-50 border border-green-200 rounded-lg">
               <div className="flex items-center justify-between">
                 <span className="text-green-700 font-medium">Compression Ratio:</span>
                 <span className="text-green-700 font-bold">{compressionRatio.toFixed(1)}% smaller</span>
@@ -257,17 +242,57 @@ export default function MetadataDisplay({
               </div>
             </div>
           )}
-          
-          <div className="mt-4">
-            <a
-              href={metadata.processed.url}
-              target="_blank"
-              rel="noopener noreferrer"
-              className="inline-flex items-center px-4 py-2 bg-green-600 text-white rounded-lg hover:bg-green-700 transition-colors"
-            >
-              <Download className="h-4 w-4 mr-2" />
-              Download Processed
-            </a>
+        </div>
+      )}
+
+      {/* Metadata Comparison Table */}
+      {metadata?.original && metadata?.processed && (
+        <div className="bg-white rounded-lg shadow-sm border p-6">
+          <h3 className="text-lg font-semibold mb-4">📊 File Comparison</h3>
+          <div className="overflow-x-auto">
+            <table className="w-full border-collapse">
+              <thead>
+                <tr className="border-b">
+                  <th className="text-left py-3 px-4 font-medium text-gray-700">Metadata</th>
+                  <th className="text-left py-3 px-4 font-medium text-blue-700">Original File</th>
+                  <th className="text-left py-3 px-4 font-medium text-green-700">Compressed File</th>
+                </tr>
+              </thead>
+              <tbody>
+                <tr className="border-b">
+                  <td className="py-3 px-4 font-medium">File Size</td>
+                  <td className="py-3 px-4 text-blue-600">{formatFileSize(metadata.original.size)}</td>
+                  <td className="py-3 px-4 text-green-600">{formatFileSize(metadata.processed.size)}</td>
+                </tr>
+                <tr className="border-b">
+                  <td className="py-3 px-4 font-medium">Format</td>
+                  <td className="py-3 px-4 text-blue-600">{metadata.original.contentType.split('/')[1]?.toUpperCase()}</td>
+                  <td className="py-3 px-4 text-green-600">{metadata.processed.contentType.split('/')[1]?.toUpperCase()}</td>
+                </tr>
+                <tr className="border-b">
+                  <td className="py-3 px-4 font-medium">Content Type</td>
+                  <td className="py-3 px-4 text-blue-600">{metadata.original.contentType}</td>
+                  <td className="py-3 px-4 text-green-600">{metadata.processed.contentType}</td>
+                </tr>
+                <tr className="border-b">
+                  <td className="py-3 px-4 font-medium">Last Modified</td>
+                  <td className="py-3 px-4 text-blue-600">{new Date(metadata.original.lastModified).toLocaleString()}</td>
+                  <td className="py-3 px-4 text-green-600">{new Date(metadata.processed.lastModified).toLocaleString()}</td>
+                </tr>
+                <tr className="border-b">
+                  <td className="py-3 px-4 font-medium">File Name</td>
+                  <td className="py-3 px-4 text-blue-600">{metadata.original.name}</td>
+                  <td className="py-3 px-4 text-green-600">{metadata.processed.name}</td>
+                </tr>
+                {compressionRatio > 0 && (
+                  <tr className="border-b bg-green-50">
+                    <td className="py-3 px-4 font-medium">Compression Ratio</td>
+                    <td className="py-3 px-4 text-blue-600">-</td>
+                    <td className="py-3 px-4 text-green-600 font-bold">{compressionRatio.toFixed(1)}% smaller</td>
+                  </tr>
+                )}
+              </tbody>
+            </table>
           </div>
         </div>
       )}

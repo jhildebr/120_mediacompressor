@@ -1,8 +1,21 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { uploadFile } from '@/lib/azure-storage';
 
+// Add CORS headers
+export async function OPTIONS() {
+  return new NextResponse(null, {
+    status: 200,
+    headers: {
+      'Access-Control-Allow-Origin': '*',
+      'Access-Control-Allow-Methods': 'POST, OPTIONS',
+      'Access-Control-Allow-Headers': 'Content-Type',
+    },
+  });
+}
+
 export async function POST(request: NextRequest) {
   try {
+    console.log('Upload API called');
     const formData = await request.formData();
     const file = formData.get('file') as File;
     
@@ -54,13 +67,26 @@ export async function POST(request: NextRequest) {
       fileSize: file.size,
       fileType: file.type,
       uploadTime: new Date().toISOString(),
+    }, {
+      headers: {
+        'Access-Control-Allow-Origin': '*',
+        'Access-Control-Allow-Methods': 'POST, OPTIONS',
+        'Access-Control-Allow-Headers': 'Content-Type',
+      },
     });
     
   } catch (error) {
     console.error('Upload error:', error);
     return NextResponse.json(
       { error: 'Failed to upload file' },
-      { status: 500 }
+      { 
+        status: 500,
+        headers: {
+          'Access-Control-Allow-Origin': '*',
+          'Access-Control-Allow-Methods': 'POST, OPTIONS',
+          'Access-Control-Allow-Headers': 'Content-Type',
+        },
+      }
     );
   }
 }

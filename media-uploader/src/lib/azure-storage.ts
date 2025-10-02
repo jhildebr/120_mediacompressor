@@ -43,7 +43,8 @@ export const uploadFile = async (file: File, containerName: string = 'uploads'):
   const blockBlobClient = containerClient.getBlockBlobClient(blobName);
   
   // Upload file
-  await blockBlobClient.uploadData(file);
+  const arrayBuffer = await file.arrayBuffer();
+  await blockBlobClient.uploadData(arrayBuffer);
   
   return blobName;
 };
