@@ -1,0 +1,3 @@
+[submodule "docs/api"]
+	path = docs/api
+	url = https://github.com/jhildebr/simpi-api-docs.git

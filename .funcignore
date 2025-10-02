@@ -1,0 +1,14 @@
+.venv/
+venv/
+__pycache__/
+*.pyc
+.pytest_cache/
+.git/
+.gitignore
+.gitmodules
+README.md
+AZURE_MEDIA_COMPRESSION_SYSTEM.md
+tests/
+scripts/
+.python-version
+*.zip
