@@ -25,6 +25,11 @@ interface StatusResponse {
   message: string;
   processedAt?: string;
   downloadUrl?: string;
+  health?: {
+    bundle_version?: string;
+    build_time?: string;
+    host_uptime_seconds?: number;
+  };
 }
 
 export default function MetadataDisplay({ 
@@ -62,7 +67,7 @@ export default function MetadataDisplay({
 
   const fetchStatus = useCallback(async () => {
     try {
-      const response = await fetch(`/api/status?blobName=${encodeURIComponent(blobName)}`);
+      const response = await fetch(`/api/status?blobName=${encodeURIComponent(blobName)}&includeHealth=1`, { cache: 'no-store' });
       const data = await response.json();
       
       if (!response.ok) {
@@ -70,10 +75,15 @@ export default function MetadataDisplay({
       }
       
       setStatus(data);
+      // If processing just completed and we don't yet have processed metadata,
+      // fetch metadata so the table and download link appear immediately.
+      if (data?.status === 'completed' && !metadata?.processed) {
+        await fetchMetadata();
+      }
     } catch (err) {
       console.error('Failed to fetch status:', err);
     }
-  }, [blobName]);
+  }, [blobName, metadata?.processed, fetchMetadata]);
 
   useEffect(() => {
     fetchMetadata();
@@ -159,6 +169,19 @@ export default function MetadataDisplay({
             <RefreshCw className="h-4 w-4" />
           </button>
         </div>
+        {status?.health && (
+          <div className="mt-3 text-xs text-gray-600 grid grid-cols-1 md:grid-cols-3 gap-2">
+            <div>
+              <span className="font-medium">Bundle:</span> {status.health.bundle_version}
+            </div>
+            <div>
+              <span className="font-medium">Build:</span> {status.health.build_time}
+            </div>
+            <div>
+              <span className="font-medium">Uptime:</span> {status.health.host_uptime_seconds}s
+            </div>
+          </div>
+        )}
       </div>
 
       {/* File Information */}

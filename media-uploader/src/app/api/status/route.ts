@@ -5,6 +5,7 @@ export async function GET(request: NextRequest) {
   try {
     const { searchParams } = new URL(request.url);
     const blobName = searchParams.get('blobName');
+    const includeHealth = searchParams.get('includeHealth');
     
     if (!blobName) {
       return NextResponse.json(
@@ -17,11 +18,24 @@ export async function GET(request: NextRequest) {
     const processedMetadata = await checkProcessedFile(blobName);
     
     if (processedMetadata) {
+      // Optional: include function health for debugging
+      let health: any = undefined;
+      if (includeHealth === '1') {
+        try {
+          const url = process.env.AZURE_FUNCTION_APP_URL || '';
+          if (url) {
+            const res = await fetch(`${url}/api/health`, { cache: 'no-store' });
+            if (res.ok) health = await res.json();
+          }
+        } catch {}
+      }
+
       return NextResponse.json({
         status: 'completed',
         message: 'File has been processed successfully',
         processedAt: processedMetadata.lastModified,
         downloadUrl: processedMetadata.url,
+        health,
       });
     }
     
@@ -36,9 +50,21 @@ export async function GET(request: NextRequest) {
       });
     }
     
+    let health: any = undefined;
+    if (includeHealth === '1') {
+      try {
+        const url = process.env.AZURE_FUNCTION_APP_URL || '';
+        if (url) {
+          const res = await fetch(`${url}/api/health`, { cache: 'no-store' });
+          if (res.ok) health = await res.json();
+        }
+      } catch {}
+    }
+
     return NextResponse.json({
       status: 'failed',
       message: 'File not found or processing failed',
+      health,
     });
     
   } catch (error) {

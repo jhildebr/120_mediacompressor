@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { uploadFile } from '@/lib/azure-storage';
+import { QueueServiceClient } from '@azure/storage-queue';
 
 // Add CORS headers
 export async function OPTIONS() {
@@ -59,6 +60,24 @@ export async function POST(request: NextRequest) {
     
     // Upload file to Azure Blob Storage
     const blobName = await uploadFile(file);
+
+    // Enqueue processing job to ensure processing starts
+    const connectionString = process.env.AZURE_STORAGE_CONNECTION_STRING;
+    if (!connectionString) {
+      throw new Error('AZURE_STORAGE_CONNECTION_STRING is not set');
+    }
+    const queueService = QueueServiceClient.fromConnectionString(connectionString);
+    const queueClient = queueService.getQueueClient('media-processing-queue');
+    await queueClient.createIfNotExists();
+    await queueClient.sendMessage(
+      JSON.stringify({
+        blob_name: blobName,
+        file_size: file.size,
+        priority: 'normal',
+        timestamp: new Date().toISOString(),
+        retry_count: 0,
+      })
+    );
     
     return NextResponse.json({
       success: true,

@@ -92,7 +92,24 @@ export const listFiles = async (containerName: string = 'uploads') => {
 
 // Check if processed file exists
 export const checkProcessedFile = async (originalBlobName: string) => {
+  // 1) Preferred pattern: "processed-<timestamp>.<ext>"
   const processedName = originalBlobName.replace(/^upload-/, 'processed-');
-  const processedMetadata = await getFileMetadata(processedName, 'processed');
-  return processedMetadata;
+  const tryNames = [processedName, originalBlobName];
+
+  const sleep = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
+
+  // Retry a few times to absorb transient 404 right after completion
+  for (let attempt = 0; attempt < 4; attempt++) {
+    // Try both naming patterns per attempt
+    for (const name of tryNames) {
+      const meta = await getFileMetadata(name, 'processed');
+      if (meta) return meta;
+    }
+    // Backoff: 0.5s, 1s, 2s
+    if (attempt < 3) {
+      await sleep(500 * Math.pow(2, attempt));
+    }
+  }
+
+  return null;
 };
