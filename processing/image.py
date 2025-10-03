@@ -5,6 +5,8 @@ from typing import Dict
 
 from PIL import Image
 from azure.storage.blob import BlobServiceClient
+from azure.core.exceptions import ResourceExistsError
+from processing import generate_processed_blob_sas_url
 
 
 def process_image(blob_name: str, job: Dict) -> Dict:
@@ -30,7 +32,7 @@ def process_image(blob_name: str, job: Dict) -> Dict:
     elif file_extension == "png":
         output_format = "PNG"
         save_kwargs = {"optimize": True}
-    elif file_extension == "webm":
+    elif file_extension == "webp":
         output_format = "WebP"
         save_kwargs = {"quality": 85, "method": 6}
     else:
@@ -47,6 +49,11 @@ def process_image(blob_name: str, job: Dict) -> Dict:
     compressed_data = output_buffer.getvalue()
 
     output_blob_name = blob_name.replace('upload-', 'processed-')
+    # Ensure 'processed' container exists
+    try:
+        blob_service.get_container_client("processed").create_container()
+    except ResourceExistsError:
+        pass
     blob_service.get_blob_client(container="processed", blob=output_blob_name).upload_blob(
         compressed_data, overwrite=True
     )
@@ -56,7 +63,8 @@ def process_image(blob_name: str, job: Dict) -> Dict:
         "original_size": len(image_data),
         "compressed_size": len(compressed_data),
         "compression_ratio": len(compressed_data) / float(len(image_data) or 1),
-        "output_url": f"https://{os.getenv('BLOB_ACCOUNT_NAME','mediablobazfct')}.blob.core.windows.net/processed/{output_blob_name}",
+        # Provide SAS URL for secure, time-limited access
+        "output_url": generate_processed_blob_sas_url(output_blob_name),
         "processing_time": time.time() - start_time,
         "format": output_format,
     }

@@ -94,7 +94,17 @@ export const listFiles = async (containerName: string = 'uploads') => {
 export const checkProcessedFile = async (originalBlobName: string) => {
   // 1) Preferred pattern: "processed-<timestamp>.<ext>"
   const processedName = originalBlobName.replace(/^upload-/, 'processed-');
-  const tryNames = [processedName, originalBlobName];
+  // Also try a WebP variant in case the image was converted (e.g., GIF -> WebP)
+  const processedWebp = processedName.replace(/\.[^/.]+$/, '.webp');
+  const originalWebp = originalBlobName.replace(/\.[^/.]+$/, '.webp');
+  const tryNames = [processedName, processedWebp, originalBlobName, originalWebp];
+
+  // TEMP DEBUG: log which names we are checking
+  // Remove after verifying end-to-end
+  try {
+    // eslint-disable-next-line no-console
+    console.debug('[checkProcessedFile] variants', { originalBlobName, tryNames });
+  } catch {}
 
   const sleep = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
 
@@ -102,6 +112,8 @@ export const checkProcessedFile = async (originalBlobName: string) => {
   for (let attempt = 0; attempt < 4; attempt++) {
     // Try both naming patterns per attempt
     for (const name of tryNames) {
+      // eslint-disable-next-line no-console
+      console.debug('[checkProcessedFile] attempt', attempt + 1, 'checking', name);
       const meta = await getFileMetadata(name, 'processed');
       if (meta) return meta;
     }

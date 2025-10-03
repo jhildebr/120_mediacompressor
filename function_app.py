@@ -119,10 +119,10 @@ def process_media_queue(msg: func.QueueMessage) -> None:
         file_extension = blob_name.lower().split(".")[-1]
         logging.info("Blob name: %s, File extension: %s", blob_name, file_extension)
 
-        if file_extension in ["mp4", "mov", "avi"]:
+        if file_extension in ["mp4", "mov", "avi", "webm"]:
             logging.info("Processing as VIDEO")
             result = process_video(blob_name, job)
-        elif file_extension in ["jpg", "jpeg", "png", "gif", "webm"]:
+        elif file_extension in ["jpg", "jpeg", "png", "gif", "webp"]:
             logging.info("Processing as IMAGE")
             result = process_image(blob_name, job)
         else:

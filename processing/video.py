@@ -6,6 +6,8 @@ import time
 from typing import Dict
 
 from azure.storage.blob import BlobServiceClient
+from azure.core.exceptions import ResourceExistsError
+from processing import generate_processed_blob_sas_url
 
 
 def _build_ffmpeg_cmd(input_path: str, output_path: str, job: Dict) -> list[str]:
@@ -104,6 +106,11 @@ def process_video(blob_name: str, job: Dict) -> Dict:
             # Upload compressed video with 'processed-' prefix in 'processed' container
             output_blob_name = blob_name.replace('upload-', 'processed-')
             logging.info("Uploading compressed video to processed container: %s", output_blob_name)
+            # Ensure 'processed' container exists
+            try:
+                blob_service.get_container_client("processed").create_container()
+            except ResourceExistsError:
+                pass
             with open(output_path, "rb") as compressed_file:
                 blob_service.get_blob_client(
                     container="processed", blob=output_blob_name
@@ -121,7 +128,8 @@ def process_video(blob_name: str, job: Dict) -> Dict:
                 "original_size": original_size,
                 "compressed_size": compressed_size,
                 "compression_ratio": compression_ratio,
-                "output_url": f"https://{os.getenv('BLOB_ACCOUNT_NAME','mediablobazfct')}.blob.core.windows.net/processed/{output_blob_name}",
+                # Provide SAS URL for secure, time-limited access
+                "output_url": generate_processed_blob_sas_url(output_blob_name),
                 "processing_time": time.time() - start_time,
             }
             
