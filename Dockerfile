@@ -26,6 +26,11 @@ COPY function_app.py .
 COPY processing/ ./processing/
 COPY integrations/ ./integrations/
 COPY config/ ./config/
+COPY host.json ./
+
+# Embed build metadata for UI/health
+ARG BUILD_TIME
+RUN echo ${BUILD_TIME:-unknown} > BUILD_TIME
 
 # Set environment variables
 ENV AzureWebJobsScriptRoot=/home/site/wwwroot \

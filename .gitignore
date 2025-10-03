@@ -6,3 +6,4 @@ __pycache__/
 local.settings.json
 
 
+.tmp_mediaprocessor_appsettings.json

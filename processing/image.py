@@ -46,7 +46,7 @@ def process_image(blob_name: str, job: Dict) -> Dict:
     original_image.save(output_buffer, format=output_format, **save_kwargs)
     compressed_data = output_buffer.getvalue()
 
-    output_blob_name = f"processed/{blob_name}"
+    output_blob_name = blob_name.replace('upload-', 'processed-')
     blob_service.get_blob_client(container="processed", blob=output_blob_name).upload_blob(
         compressed_data, overwrite=True
     )

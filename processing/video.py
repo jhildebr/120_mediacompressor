@@ -18,7 +18,8 @@ def _build_ffmpeg_cmd(input_path: str, output_path: str, job: Dict) -> list[str]
         "-crf",
         "23",
         "-preset",
-        "medium",
+        # Use ultrafast to minimize CPU time; adjust CRF to keep quality reasonable
+        "ultrafast",
         "-c:a",
         "aac",
         "-b:a",
@@ -44,6 +45,7 @@ def _build_ffmpeg_cmd(input_path: str, output_path: str, job: Dict) -> list[str]
 
 def process_video(blob_name: str, job: Dict) -> Dict:
     """Process video compression with FFmpeg and upload to 'processed' container."""
+    logging.info("=== VIDEO PROCESSING STARTED for %s ===", blob_name)
     start_time = time.time()
 
     blob_service = BlobServiceClient.from_connection_string(
@@ -51,38 +53,70 @@ def process_video(blob_name: str, job: Dict) -> Dict:
     )
 
     # Download original file
+    logging.info("Downloading original file from uploads container: %s", blob_name)
     uploads_client = blob_service.get_blob_client(container="uploads", blob=blob_name)
 
     with tempfile.NamedTemporaryFile(suffix=".mp4") as temp_input:
-        temp_input.write(uploads_client.download_blob().readall())
+        logging.info("Writing downloaded file to temp file (streaming): %s", temp_input.name)
+        downloader = uploads_client.download_blob(max_concurrency=4)
+        downloader.readinto(temp_input)
         temp_input.flush()
+        logging.info("Downloaded file size: %s bytes", os.path.getsize(temp_input.name))
 
         with tempfile.NamedTemporaryFile(suffix=".mp4", delete=False) as temp_output:
             output_path = temp_output.name
+            logging.info("Created output temp file: %s", output_path)
 
         try:
-            cmd = _build_ffmpeg_cmd(temp_input.name, output_path, job)
-            logging.info("Running FFmpeg: %s", " ".join(cmd))
-
-            result = subprocess.run(
-                cmd, capture_output=True, text=True, timeout=int(os.getenv("MAX_PROCESSING_TIME", "300"))
+            # 1) Fast path: container rewrite only (stream copy) if source is already compatible
+            # This is near-instantaneous for small files.
+            fast_cmd = [
+                "ffmpeg",
+                "-i",
+                temp_input.name,
+                "-c:v",
+                "copy",
+                "-c:a",
+                "copy",
+                "-movflags",
+                "+faststart",
+                "-y",
+                output_path,
+            ]
+            logging.info("Attempting fast stream-copy: %s", " ".join(fast_cmd))
+            fast = subprocess.run(
+                fast_cmd, capture_output=True, text=True, timeout=int(os.getenv("MAX_PROCESSING_TIME", "300"))
             )
+            if fast.returncode != 0:
+                logging.info("Fast path failed, falling back to re-encode. stderr: %s", fast.stderr)
+                # 2) Fallback: re-encode with ultrafast preset
+                cmd = _build_ffmpeg_cmd(temp_input.name, output_path, job)
+                logging.info("Running FFmpeg re-encode: %s", " ".join(cmd))
+                result = subprocess.run(
+                    cmd, capture_output=True, text=True, timeout=int(os.getenv("MAX_PROCESSING_TIME", "300"))
+                )
+                logging.info("FFmpeg return code: %s", result.returncode)
+                logging.info("FFmpeg stdout: %s", result.stdout)
+                logging.info("FFmpeg stderr: %s", result.stderr)
+                if result.returncode != 0:
+                    raise RuntimeError(f"FFmpeg failed: {result.stderr}")
 
-            if result.returncode != 0:
-                raise RuntimeError(f"FFmpeg failed: {result.stderr}")
-
-            # Upload compressed video (same name in 'processed' container)
-            output_blob_name = blob_name
+            # Upload compressed video with 'processed-' prefix in 'processed' container
+            output_blob_name = blob_name.replace('upload-', 'processed-')
+            logging.info("Uploading compressed video to processed container: %s", output_blob_name)
             with open(output_path, "rb") as compressed_file:
                 blob_service.get_blob_client(
                     container="processed", blob=output_blob_name
-                ).upload_blob(compressed_file, overwrite=True)
+                ).upload_blob(compressed_file, overwrite=True, max_concurrency=4)
 
             original_size = int(job.get("file_size", 1)) or 1
             compressed_size = os.path.getsize(output_path)
             compression_ratio = compressed_size / float(original_size)
+            
+            logging.info("Original size: %s, Compressed size: %s, Ratio: %s", 
+                        original_size, compressed_size, compression_ratio)
 
-            return {
+            result_dict = {
                 "status": "success",
                 "original_size": original_size,
                 "compressed_size": compressed_size,
@@ -90,6 +124,10 @@ def process_video(blob_name: str, job: Dict) -> Dict:
                 "output_url": f"https://{os.getenv('BLOB_ACCOUNT_NAME','mediablobazfct')}.blob.core.windows.net/processed/{output_blob_name}",
                 "processing_time": time.time() - start_time,
             }
+            
+            logging.info("=== VIDEO PROCESSING COMPLETED SUCCESSFULLY for %s ===", blob_name)
+            logging.info("Result: %s", result_dict)
+            return result_dict
 
         finally:
             if os.path.exists(output_path):
