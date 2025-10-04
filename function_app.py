@@ -7,10 +7,19 @@ from datetime import datetime
 
 import azure.functions as func
 from azure.storage.queue import QueueServiceClient
+from azure.storage.blob import BlobServiceClient
 
 from integrations.database import update_database
 from integrations.errors import handle_processing_error
 from integrations.notifications import send_completion_notification
+from integrations.tracking import (
+    create_job_record,
+    update_job_status,
+    get_job_status,
+    delete_job_record,
+    get_old_completed_jobs,
+)
+from integrations.auth import require_auth
 from processing.image import process_image
 from processing.video import process_video
 
@@ -40,8 +49,6 @@ def process_media_upload(myblob: func.InputStream) -> None:
         logging.info("=== BLOB TRIGGER STARTED ===")
         logging.info("Blob name: %s", myblob.name)
         logging.info("Blob length: %s", myblob.length)
-        logging.info("Blob type: %s", type(myblob))
-        logging.info("Blob attributes: %s", dir(myblob))
 
         # Extract just the blob file name (strip 'uploads/' path if present)
         blob_name = myblob.name.split("/")[-1] if myblob.name else "unknown"
@@ -50,7 +57,12 @@ def process_media_upload(myblob: func.InputStream) -> None:
         # Ensure we have a valid length
         file_size = int(myblob.length) if myblob.length else 0
         priority = _determine_priority(file_size)
-        logging.info("File size: %s, Priority: %s", file_size, priority)
+        file_extension = blob_name.lower().split(".")[-1] if "." in blob_name else "unknown"
+
+        logging.info("File size: %s, Priority: %s, Type: %s", file_size, priority, file_extension)
+
+        # Create job tracking record
+        create_job_record(blob_name, file_size, file_extension)
 
         job = {
             "blob_name": blob_name,
@@ -76,10 +88,17 @@ def process_media_upload(myblob: func.InputStream) -> None:
 
     except Exception as exc:
         logging.error("Blob trigger failed: %s", str(exc))
+        # Update job status to failed
+        try:
+            blob_name = myblob.name.split("/")[-1] if myblob.name else "unknown"
+            update_job_status(blob_name, "failed", error_message=str(exc))
+        except Exception:
+            pass
+
         # Send error to poison queue for manual investigation
         try:
             error_job = {
-                "blob_name": myblob.name.split("/")[-1] if myblob.name else "unknown",
+                "blob_name": blob_name,
                 "error": str(exc),
                 "timestamp": datetime.utcnow().isoformat(),
             }
@@ -99,25 +118,26 @@ def process_media_upload(myblob: func.InputStream) -> None:
 def process_media_queue(msg: func.QueueMessage) -> None:
     """Process media compression jobs from the queue."""
     job = None
+    blob_name = None
     try:
         logging.info("=== QUEUE TRIGGER STARTED ===")
         logging.info("Message ID: %s", msg.id)
-        logging.info("Message content: %s", msg.get_body())
-        
+
         # Try to parse the message body directly first (new format)
         try:
             job = json.loads(msg.get_body().decode())
-            logging.info("Parsed job (direct): %s", job)
         except (json.JSONDecodeError, UnicodeDecodeError):
             # Fallback to base64 decoding for backward compatibility
             job = json.loads(base64.b64decode(msg.get_body()).decode())
-            logging.info("Parsed job (base64): %s", job)
-        
+
         logging.info("Processing job: %s", job)
 
-        blob_name: str = job["blob_name"]
+        blob_name = job["blob_name"]
         file_extension = blob_name.lower().split(".")[-1]
         logging.info("Blob name: %s, File extension: %s", blob_name, file_extension)
+
+        # Update status to processing
+        update_job_status(blob_name, "processing")
 
         if file_extension in ["mp4", "mov", "avi", "webm"]:
             logging.info("Processing as VIDEO")
@@ -130,17 +150,36 @@ def process_media_queue(msg: func.QueueMessage) -> None:
 
         logging.info("Processing result: %s", result)
 
+        # Update status to completed
+        update_job_status(blob_name, "completed", result=result)
+
         # Update database and notify
         logging.info("Updating database for %s", blob_name)
         update_database(blob_name, result)
-        
+
         logging.info("Sending completion notification for %s", blob_name)
         send_completion_notification(blob_name, result)
+
+        # Cleanup: Delete original upload blob immediately after successful processing
+        try:
+            logging.info("Deleting original upload blob: %s", blob_name)
+            blob_service = BlobServiceClient.from_connection_string(
+                os.environ["AzureWebJobsStorage"]
+            )
+            blob_service.get_blob_client(container="uploads", blob=blob_name).delete_blob()
+            logging.info("Successfully deleted upload blob: %s", blob_name)
+        except Exception as cleanup_exc:
+            logging.warning("Failed to delete upload blob %s: %s", blob_name, str(cleanup_exc))
 
         logging.info("=== QUEUE TRIGGER COMPLETED SUCCESSFULLY for %s ===", blob_name)
 
     except Exception as exc:  # pylint: disable=broad-except
         logging.error("Processing failed: %s", str(exc))
+
+        # Update job status to failed
+        if blob_name:
+            update_job_status(blob_name, "failed", error_message=str(exc))
+
         safe_job = job or {"blob_name": "unknown", "retry_count": 0}
         handle_processing_error(msg, safe_job, str(exc))
 
@@ -186,6 +225,84 @@ def health(req: func.HttpRequest) -> func.HttpResponse:  # type: ignore[override
     except Exception as exc:  # pragma: no cover
         return func.HttpResponse(
             body=json.dumps({"status": "error", "error": str(exc)}),
+            mimetype="application/json",
+            status_code=500,
+        )
+
+
+@app.route(route="status", auth_level=func.AuthLevel.ANONYMOUS, methods=["GET"])
+def get_status(req: func.HttpRequest) -> func.HttpResponse:  # type: ignore[override]
+    """Get processing status for a blob.
+
+    Query parameters:
+        blob_name: Name of the blob to check status for
+
+    Requires authentication via X-API-Key header.
+    """
+    # Check authentication
+    auth_response = require_auth(req)
+    if auth_response:
+        return auth_response
+
+    try:
+        blob_name = req.params.get("blob_name")
+
+        if not blob_name:
+            return func.HttpResponse(
+                body=json.dumps({"error": "blob_name parameter is required"}),
+                mimetype="application/json",
+                status_code=400,
+            )
+
+        # Get job status from Table Storage
+        job_status = get_job_status(blob_name)
+
+        if not job_status:
+            return func.HttpResponse(
+                body=json.dumps({"error": f"No job found for blob: {blob_name}"}),
+                mimetype="application/json",
+                status_code=404,
+            )
+
+        # Build response
+        response = {
+            "blob_name": job_status.get("blob_name"),
+            "status": job_status.get("status"),
+            "file_size": job_status.get("file_size"),
+            "file_type": job_status.get("file_type"),
+            "created_at": job_status.get("created_at"),
+            "updated_at": job_status.get("updated_at"),
+        }
+
+        # Add processing details if available
+        if job_status.get("processing_started_at"):
+            response["processing_started_at"] = job_status.get("processing_started_at")
+
+        # Add completion details if completed
+        if job_status.get("status") == "completed":
+            response["completed_at"] = job_status.get("completed_at")
+            response["processed_blob_name"] = job_status.get("processed_blob_name")
+            response["original_size"] = job_status.get("original_size")
+            response["compressed_size"] = job_status.get("compressed_size")
+            response["compression_ratio"] = job_status.get("compression_ratio")
+            response["processing_time"] = job_status.get("processing_time")
+            response["output_url"] = job_status.get("output_url")
+
+        # Add error details if failed
+        if job_status.get("status") == "failed":
+            response["failed_at"] = job_status.get("failed_at")
+            response["error_message"] = job_status.get("error_message")
+
+        return func.HttpResponse(
+            body=json.dumps(response),
+            mimetype="application/json",
+            status_code=200,
+        )
+
+    except Exception as exc:
+        logging.error("Status check failed: %s", str(exc))
+        return func.HttpResponse(
+            body=json.dumps({"error": str(exc)}),
             mimetype="application/json",
             status_code=500,
         )
@@ -259,4 +376,68 @@ def test_process(req: func.HttpRequest) -> func.HttpResponse:  # type: ignore[ov
             mimetype="application/json",
             status_code=500,
         )
+
+
+@app.timer_trigger(arg_name="timer", schedule="0 */5 * * * *")
+def cleanup_old_files(timer: func.TimerRequest) -> None:
+    """Cleanup timer that runs every 5 minutes.
+
+    Deletes:
+    - Processed files older than 10 minutes
+    - Associated job tracking records
+    """
+    try:
+        logging.info("=== CLEANUP TIMER STARTED ===")
+
+        # Get completed jobs older than 10 minutes
+        old_jobs = get_old_completed_jobs(minutes_old=10)
+        logging.info("Found %d old completed jobs to clean up", len(old_jobs))
+
+        blob_service = BlobServiceClient.from_connection_string(
+            os.environ["AzureWebJobsStorage"]
+        )
+
+        deleted_count = 0
+        error_count = 0
+
+        for job in old_jobs:
+            try:
+                blob_name = job.get("blob_name")
+                processed_blob_name = job.get("processed_blob_name")
+
+                if not processed_blob_name:
+                    # Derive from blob_name if not stored
+                    processed_blob_name = blob_name.replace("upload-", "processed-")
+
+                # Delete processed blob
+                try:
+                    processed_client = blob_service.get_blob_client(
+                        container="processed", blob=processed_blob_name
+                    )
+                    processed_client.delete_blob()
+                    logging.info("Deleted processed blob: %s", processed_blob_name)
+                except Exception as blob_exc:
+                    logging.warning(
+                        "Failed to delete processed blob %s: %s",
+                        processed_blob_name,
+                        str(blob_exc)
+                    )
+
+                # Delete job tracking record
+                delete_job_record(blob_name)
+
+                deleted_count += 1
+
+            except Exception as job_exc:
+                logging.error("Error cleaning up job %s: %s", job.get("blob_name"), str(job_exc))
+                error_count += 1
+
+        logging.info(
+            "=== CLEANUP COMPLETED: %d jobs cleaned, %d errors ===",
+            deleted_count,
+            error_count
+        )
+
+    except Exception as exc:
+        logging.error("Cleanup timer failed: %s", str(exc))
 

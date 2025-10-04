@@ -20,18 +20,24 @@ Azure Function App (container-based) for video and image compression using FFmpe
 
 This builds the container in Azure Container Registry (no local Docker required) and deploys to the Function App.
 
-### 2. Set Environment Variables
+### 2. Generate and Set API Key
 ```bash
-./scripts/set-env-vars.sh
-```
+# Generate a secure API key
+openssl rand -hex 32
 
-### 3. Update API Token
-```bash
+# Set it in Function App
 az functionapp config appsettings set \
   --name mediaprocessor2 \
   --resource-group rg-11-video-compressor-az-function \
-  --settings "SIMPI_API_TOKEN=your-actual-token"
+  --settings "API_KEY=your-generated-api-key"
 ```
+
+### 3. Verify Deployment
+```bash
+curl https://mediaprocessor2.azurewebsites.net/api/health
+```
+
+**📖 For complete deployment instructions, see [DEPLOYMENT_GUIDE.md](DEPLOYMENT_GUIDE.md)**
 
 ## File Structure
 
@@ -113,12 +119,27 @@ az storage queue show \
   --query "approximateMessageCount"
 ```
 
+## Features
+
+### Production-Ready Multi-Tenant Processing
+- ✅ **Job Tracking**: Azure Table Storage tracks all processing jobs
+- ✅ **API Authentication**: Secure API key authentication
+- ✅ **Status Queries**: Query processing status by blob name
+- ✅ **Automatic Cleanup**:
+  - Upload blobs deleted immediately after processing
+  - Processed blobs deleted 10 minutes after completion
+- ✅ **Parallel Processing**: Multiple jobs processed simultaneously without conflicts
+- ✅ **Error Tracking**: Failed jobs tracked with error messages
+
 ## API Endpoints
 
-| Endpoint | Method | Description |
-|----------|--------|-------------|
-| `/api/health` | GET | Health check and function list |
-| `/api/test-process` | POST | Test processing without queue (JSON: `{"blob_name": "file.mp4"}`) |
+| Endpoint | Method | Auth | Description |
+|----------|--------|------|-------------|
+| `/api/health` | GET | No | Health check and function list |
+| `/api/status` | GET | **Yes** | Get processing status (query: `?blob_name=file.mp4`) |
+| `/api/test-process` | POST | No | Test processing without queue (JSON: `{"blob_name": "file.mp4"}`) |
+
+**Authentication**: Include `X-API-Key: your-api-key` header for authenticated endpoints.
 
 ## Troubleshooting
 
