@@ -1,35 +1,34 @@
 # SIMPI Azure Media Compression System
 
-Container-based Azure Functions for video and image compression using FFmpeg and Pillow.
+Azure Function App (container-based) for video and image compression using FFmpeg and Pillow.
+
+**Note**: This is a **Function App running a container** (not Azure Container Apps service).
 
 ## Architecture
 
-- **Azure Container Apps**: Runs Python 3.11 with FFmpeg
+- **Azure Function App**: Container-based Function App running Python 3.11 with FFmpeg
 - **Azure Blob Storage**: File uploads and processed outputs
 - **Azure Queue Storage**: Job processing queue
 - **Azure Container Registry**: Container image storage
 
 ## Quick Start
 
-### 1. Setup Container Registry
+### 1. Build and Deploy Container (in Azure)
 ```bash
-./scripts/setup-container-registry.sh
+./scripts/build-in-azure.sh
 ```
 
-### 2. Build and Deploy Container
-```bash
-./scripts/build-and-deploy.sh
-```
+This builds the container in Azure Container Registry (no local Docker required) and deploys to the Function App.
 
-### 3. Set Environment Variables
+### 2. Set Environment Variables
 ```bash
 ./scripts/set-env-vars.sh
 ```
 
-### 4. Update API Token
+### 3. Update API Token
 ```bash
 az functionapp config appsettings set \
-  --name mediaprocessor \
+  --name mediaprocessor2 \
   --resource-group rg-11-video-compressor-az-function \
   --settings "SIMPI_API_TOKEN=your-actual-token"
 ```
@@ -51,7 +50,7 @@ az functionapp config appsettings set \
 │   └── compression_config.py   # Compression settings
 ├── scripts/                    # Deployment scripts
 │   ├── setup-container-registry.sh
-│   ├── build-and-deploy.sh
+│   ├── build-in-azure.sh      # Build & deploy (no Docker required)
 │   └── set-env-vars.sh
 └── requirements.txt            # Python dependencies
 ```
@@ -74,26 +73,22 @@ az functionapp config appsettings set \
 - Azure CLI
 - Python 3.11
 
-### Test Locally
-```bash
-# Build container
-docker build -t mediaprocessor .
+### Test Processing Without Queue
 
-# Run locally
-docker run -p 8080:80 \
-  -e AzureWebJobsStorage="UseDevelopmentStorage=true" \
-  -e BLOB_ACCOUNT_NAME="mediablobazfct" \
-  mediaprocessor
-```
+Upload a test file and trigger processing directly (bypasses queue):
 
-### Test Processing
 ```bash
 # Upload a test file to the uploads container
 az storage blob upload \
   --account-name mediablobazfct \
   --container-name uploads \
   --file test-video.mp4 \
-  --name "step-123-test.mp4"
+  --name "test-video.mp4"
+
+# Trigger processing directly (bypasses queue)
+curl -X POST https://mediaprocessor2.azurewebsites.net/api/test-process \
+  -H "Content-Type: application/json" \
+  -d '{"blob_name": "test-video.mp4"}'
 ```
 
 ## Monitoring
@@ -101,8 +96,13 @@ az storage blob upload \
 ### View Logs
 ```bash
 az functionapp logs tail \
-  --name mediaprocessor \
+  --name mediaprocessor2 \
   --resource-group rg-11-video-compressor-az-function
+```
+
+### Health Check
+```bash
+curl https://mediaprocessor2.azurewebsites.net/api/health
 ```
 
 ### Check Queue Status
@@ -113,19 +113,26 @@ az storage queue show \
   --query "approximateMessageCount"
 ```
 
+## API Endpoints
+
+| Endpoint | Method | Description |
+|----------|--------|-------------|
+| `/api/health` | GET | Health check and function list |
+| `/api/test-process` | POST | Test processing without queue (JSON: `{"blob_name": "file.mp4"}`) |
+
 ## Troubleshooting
 
-### Container Issues
-- Check container logs in Azure Portal
-- Verify FFmpeg installation: `docker exec <container> ffmpeg -version`
-- Check Python dependencies: `docker exec <container> pip list`
+### Function App Issues
+- Check logs in Azure Portal or via `az functionapp logs tail`
+- Verify container image is deployed: `az functionapp config container show`
+- Check environment variables in Azure Portal
 
 ### Storage Issues
-- Verify blob containers exist
+- Verify blob containers exist (`uploads`, `processed`)
 - Check queue permissions
 - Validate connection strings
 
 ### Processing Issues
 - Check file format support
-- Verify FFmpeg command execution
-- Monitor memory usage for large files
+- Use `/api/test-process` endpoint to bypass queue for testing
+- Monitor memory usage for large files in Azure Portal

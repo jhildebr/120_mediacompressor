@@ -2,12 +2,14 @@
 
 ## Overview
 
-This document outlines the architecture and implementation of a scalable video and image compression system using Azure Functions and Azure Container Apps. The system processes media files uploaded via a Next.js web application, providing automatic compression, format optimization, and real-time processing notifications.
+This document outlines the architecture and implementation of a scalable video and image compression system using **Azure Function App (container-based)**. The system processes media files uploaded via a Next.js web application, providing automatic compression, format optimization, and real-time processing notifications.
+
+**Important**: This system uses a **Function App running containers** (not Azure Container Apps service).
 
 ## ✅ **Current Status: IMPLEMENTED**
 
 The system has been successfully implemented and deployed with the following components:
-- ✅ Azure Functions running on Container Apps with FFmpeg support
+- ✅ Azure Function App (container-based) with FFmpeg support
 - ✅ Azure Blob Storage with proper container setup
 - ✅ Next.js web application for file upload and management
 - ✅ Real-time processing status monitoring
@@ -52,10 +54,12 @@ graph TB
 #### Azure Resources Required
 - **Resource Group**: `rg-11-video-compressor-az-function`
 - **Storage Account**: `mediablobazfct`
-- **Function App**: `mediaprocessor` (Container App)
+- **Function App**: `mediaprocessor2` (container-based, kind: `functionapp,linux,container`)
 - **Container Registry**: `mediacompressorregistry`
 - **Application Insights**: For monitoring and logging
 - **Azure CDN**: For optimized media delivery (optional)
+
+**Note**: `mediaprocessor2` is a Function App running containers, not Azure Container Apps.
 
 #### Storage Containers
 - **uploads**: Private container for original uploaded files
@@ -96,7 +100,7 @@ graph TB
 
 ### ✅ Phase 1: Core Infrastructure (COMPLETED)
 - ✅ Azure resource group and storage account created
-- ✅ Function App deployed on Container Apps with Python 3.11
+- ✅ Container-based Function App deployed with Python 3.11
 - ✅ Storage containers configured (uploads, processed)
 - ✅ Azure Container Registry setup
 
@@ -525,43 +529,38 @@ The infrastructure has been successfully deployed with the following resources:
 ```bash
 # Resource Group: rg-11-video-compressor-az-function
 # Storage Account: mediablobazfct
-# Function App: mediaprocessor (Container App)
+# Function App: mediaprocessor2 (container-based Function App)
 # Container Registry: mediacompressorregistry
 # Location: germanywestcentral
 ```
 
 ### ✅ Container Deployment (COMPLETED)
 
-The system uses Azure Container Apps with Docker containers:
+The system uses a **Function App running containers** (not Azure Container Apps service).
+
+**Deployment Script** (builds in Azure, no local Docker required):
 
 ```bash
 #!/bin/bash
-# scripts/setup-container-registry.sh
+# scripts/build-in-azure.sh
 
-# Create Azure Container Registry
-az acr create --resource-group rg-11-video-compressor-az-function \
-  --name mediacompressorregistry --sku Basic --admin-enabled true
-
-# Configure Function App for container deployment
-az functionapp config container set \
-  --name mediaprocessor \
-  --resource-group rg-11-video-compressor-az-function \
-  --docker-custom-image-name mediacompressorregistry.azurecr.io/mediaprocessor:latest
-```
-
-```bash
-#!/bin/bash
-# scripts/build-and-deploy.sh
-
-# Build and push Docker image
-docker build --tag mediacompressorregistry/mediaprocessor:latest .
-docker push mediacompressorregistry/mediaprocessor:latest
+# Build the image in Azure Container Registry
+az acr build \
+  --registry mediacompressorregistry \
+  --image mediaprocessor2:latest \
+  --file Dockerfile \
+  .
 
 # Update Function App with new image
 az functionapp config container set \
-  --name mediaprocessor \
+  --name mediaprocessor2 \
   --resource-group rg-11-video-compressor-az-function \
-  --docker-custom-image-name mediacompressorregistry/mediaprocessor:latest
+  --image mediacompressorregistry.azurecr.io/mediaprocessor2:latest
+
+# Restart Function App
+az functionapp restart \
+  --name mediaprocessor2 \
+  --resource-group rg-11-video-compressor-az-function
 ```
 
 ### ✅ Next.js Application Setup
@@ -636,7 +635,7 @@ AZURE_STORAGE_ACCOUNT_NAME=mediablobazfct
 AZURE_STORAGE_CONNECTION_STRING=your_connection_string_here
 
 # Azure Function App URL
-AZURE_FUNCTION_APP_URL=https://mediaprocessor.happydune-07a3bc2a.germanywestcentral.azurecontainerapps.io
+AZURE_FUNCTION_APP_URL=https://mediaprocessor2.azurewebsites.net
 ```
 
 ### Compression Configuration
@@ -1208,10 +1207,36 @@ The system is now ready for production use. Users can:
 
 ### 🎯 System Access
 
-**Web Application**: http://localhost:3000 (development)  
-**Azure Function**: https://mediaprocessor.happydune-07a3bc2a.germanywestcentral.azurecontainerapps.io  
-**Storage Account**: mediablobazfct.blob.core.windows.net  
+**Web Application**: http://localhost:3000 (development)
+**Azure Function App**: https://mediaprocessor2.azurewebsites.net
+**Health Check**: https://mediaprocessor2.azurewebsites.net/api/health
+**Test Endpoint**: https://mediaprocessor2.azurewebsites.net/api/test-process
+**Storage Account**: mediablobazfct.blob.core.windows.net
 **Container Registry**: mediacompressorregistry.azurecr.io
+
+### 🧪 Testing Without Queue
+
+The system includes a test endpoint that bypasses the queue for direct testing:
+
+```bash
+# Upload a test file
+az storage blob upload \
+  --account-name mediablobazfct \
+  --container-name uploads \
+  --file test.mp4 \
+  --name "test.mp4"
+
+# Trigger processing directly (bypasses queue)
+curl -X POST https://mediaprocessor2.azurewebsites.net/api/test-process \
+  -H "Content-Type: application/json" \
+  -d '{"blob_name": "test.mp4"}'
+```
+
+This is useful for:
+- Testing processing logic without queue delays
+- Debugging compression issues
+- Verifying FFmpeg installation
+- Testing new file formats
 
 ## Support and Maintenance
 

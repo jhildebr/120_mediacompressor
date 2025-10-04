@@ -175,6 +175,7 @@ def health(req: func.HttpRequest) -> func.HttpResponse:  # type: ignore[override
             "functions": [
                 "process_media_upload",
                 "process_media_queue",
+                "test_process",
             ],
         }
         return func.HttpResponse(
@@ -183,6 +184,76 @@ def health(req: func.HttpRequest) -> func.HttpResponse:  # type: ignore[override
             status_code=200,
         )
     except Exception as exc:  # pragma: no cover
+        return func.HttpResponse(
+            body=json.dumps({"status": "error", "error": str(exc)}),
+            mimetype="application/json",
+            status_code=500,
+        )
+
+
+@app.route(route="test-process", auth_level=func.AuthLevel.ANONYMOUS, methods=["POST"])
+def test_process(req: func.HttpRequest) -> func.HttpResponse:  # type: ignore[override]
+    """Test endpoint to process a file directly without using the queue."""
+    try:
+        req_body = req.get_json()
+        blob_name = req_body.get("blob_name")
+
+        if not blob_name:
+            return func.HttpResponse(
+                body=json.dumps({"error": "blob_name is required"}),
+                mimetype="application/json",
+                status_code=400,
+            )
+
+        logging.info("=== TEST PROCESS STARTED ===")
+        logging.info("Blob name: %s", blob_name)
+
+        # Create a mock job
+        job = {
+            "blob_name": blob_name,
+            "file_size": 0,
+            "priority": "high",
+            "timestamp": datetime.utcnow().isoformat(),
+            "retry_count": 0,
+        }
+
+        # Determine file type and process
+        file_extension = blob_name.lower().split(".")[-1]
+        logging.info("File extension: %s", file_extension)
+
+        if file_extension in ["mp4", "mov", "avi", "webm"]:
+            logging.info("Processing as VIDEO")
+            result = process_video(blob_name, job)
+        elif file_extension in ["jpg", "jpeg", "png", "gif", "webp"]:
+            logging.info("Processing as IMAGE")
+            result = process_image(blob_name, job)
+        else:
+            return func.HttpResponse(
+                body=json.dumps({"error": f"Unsupported file type: {file_extension}"}),
+                mimetype="application/json",
+                status_code=400,
+            )
+
+        logging.info("Processing result: %s", result)
+
+        # Update database and notify
+        update_database(blob_name, result)
+        send_completion_notification(blob_name, result)
+
+        logging.info("=== TEST PROCESS COMPLETED ===")
+
+        return func.HttpResponse(
+            body=json.dumps({
+                "status": "success",
+                "blob_name": blob_name,
+                "result": result,
+            }),
+            mimetype="application/json",
+            status_code=200,
+        )
+
+    except Exception as exc:
+        logging.error("Test processing failed: %s", str(exc))
         return func.HttpResponse(
             body=json.dumps({"status": "error", "error": str(exc)}),
             mimetype="application/json",

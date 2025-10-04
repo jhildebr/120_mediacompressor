@@ -59,25 +59,32 @@ export async function POST(request: NextRequest) {
     }
     
     // Upload file to Azure Blob Storage
+    console.log(`[upload] Starting upload for file: ${file.name} (${file.size} bytes, ${file.type})`);
     const blobName = await uploadFile(file);
+    console.log(`[upload] File uploaded successfully with blob name: ${blobName}`);
 
     // Enqueue processing job to ensure processing starts
     const connectionString = process.env.AZURE_STORAGE_CONNECTION_STRING;
     if (!connectionString) {
       throw new Error('AZURE_STORAGE_CONNECTION_STRING is not set');
     }
+
+    console.log(`[upload] Creating queue service and sending message for: ${blobName}`);
     const queueService = QueueServiceClient.fromConnectionString(connectionString);
     const queueClient = queueService.getQueueClient('media-processing-queue');
     await queueClient.createIfNotExists();
-    await queueClient.sendMessage(
-      JSON.stringify({
-        blob_name: blobName,
-        file_size: file.size,
-        priority: 'normal',
-        timestamp: new Date().toISOString(),
-        retry_count: 0,
-      })
-    );
+
+    const queueMessage = {
+      blob_name: blobName,
+      file_size: file.size,
+      priority: 'normal',
+      timestamp: new Date().toISOString(),
+      retry_count: 0,
+    };
+
+    console.log(`[upload] Sending queue message:`, queueMessage);
+    await queueClient.sendMessage(JSON.stringify(queueMessage));
+    console.log(`[upload] Queue message sent successfully for: ${blobName}`);
     
     return NextResponse.json({
       success: true,

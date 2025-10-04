@@ -13,10 +13,12 @@ A Next.js application for uploading and compressing media files using Azure Func
 
 ## Prerequisites
 
-- Node.js 18+ 
+- Node.js 18+
 - Azure Storage Account with Blob Storage
-- Azure Function App with media compression functions deployed
+- Azure Function App (container-based) with media compression functions deployed
 - Azure Storage connection string and account key
+
+**Note**: The backend is a **Function App running a container** (not Azure Container Apps service).
 
 ## Setup
 
@@ -41,7 +43,7 @@ A Next.js application for uploading and compressing media files using Azure Func
    AZURE_STORAGE_CONNECTION_STRING=your_connection_string_here
    
    # Azure Function App URL
-   AZURE_FUNCTION_APP_URL=https://mediaprocessor.happydune-07a3bc2a.germanywestcentral.azurecontainerapps.io
+   AZURE_FUNCTION_APP_URL=https://mediaprocessor2.azurewebsites.net
    ```
 
 3. **Get Azure Storage Credentials**
@@ -128,15 +130,17 @@ npm start
 Ensure all environment variables are set in your production environment:
 - `AZURE_STORAGE_CONNECTION_STRING`
 - `AZURE_STORAGE_ACCOUNT_NAME`
-- `AZURE_FUNCTION_APP_URL`
+- `AZURE_STORAGE_ACCOUNT_KEY`
+- `AZURE_FUNCTION_APP_URL` (e.g., `https://mediaprocessor2.azurewebsites.net`)
 
 ## Troubleshooting
 
 ### Common Issues
 
 1. **Upload Fails**: Check Azure Storage connection string and permissions
-2. **Processing Stuck**: Verify Azure Function App is running and has proper blob triggers
+2. **Processing Stuck**: Verify Function App is running (`curl https://mediaprocessor2.azurewebsites.net/api/health`)
 3. **Download Links Expire**: SAS tokens expire after 1 hour, refresh the page
+4. **Function App Not Responding**: Check logs with `az functionapp logs tail --name mediaprocessor2 --resource-group rg-11-video-compressor-az-function`
 
 ### Debug Mode
 Enable debug logging by setting:

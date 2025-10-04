@@ -4,8 +4,8 @@ set -euo pipefail
 # Configuration
 RESOURCE_GROUP="rg-11-video-compressor-az-function"
 REGISTRY_NAME="mediacompressorregistry"
-FUNCTION_APP="mediaprocessor"
-IMAGE_NAME="mediaprocessor"
+FUNCTION_APP="mediaprocessor2"
+IMAGE_NAME="mediaprocessor2"
 IMAGE_TAG="latest"
 
 echo "Building container image in Azure Container Registry..."

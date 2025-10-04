@@ -2,7 +2,9 @@
 
 ## 🎉 **PROJECT COMPLETE**
 
-This project implements a complete end-to-end media compression system using Azure Functions, Azure Container Apps, and a Next.js web application.
+This project implements a complete end-to-end media compression system using Azure Function App (container-based) and a Next.js web application.
+
+**Note**: This uses a **Function App running containers** (not Azure Container Apps service).
 
 ## 📁 **Project Structure**
 
@@ -25,7 +27,7 @@ This project implements a complete end-to-end media compression system using Azu
 ├── 🐳 .dockerignore                       # Docker ignore file
 ├── 📜 scripts/
 │   ├── setup-container-registry.sh        # ACR setup script
-│   ├── build-and-deploy.sh               # Container deployment
+│   ├── build-in-azure.sh                 # Build & deploy (no Docker needed)
 │   └── set-env-vars.sh                   # Environment configuration
 ├── 🚀 media-uploader/                     # Next.js web application
 │   ├── 📋 README.md                       # Web app documentation
@@ -56,7 +58,7 @@ This project implements a complete end-to-end media compression system using Azu
 ### Azure Infrastructure
 - **Resource Group**: `rg-11-video-compressor-az-function`
 - **Storage Account**: `mediablobazfct`
-- **Function App**: `mediaprocessor` (Container App)
+- **Function App**: `mediaprocessor2` (container-based, kind: `functionapp,linux,container`)
 - **Container Registry**: `mediacompressorregistry`
 - **Location**: `germanywestcentral`
 
@@ -71,10 +73,10 @@ This project implements a complete end-to-end media compression system using Azu
 
 ## 🚀 **Quick Start**
 
-### 1. Azure Functions (Backend)
+### 1. Azure Function App (Backend)
 ```bash
-# Deploy container to Azure
-./scripts/build-and-deploy.sh
+# Build and deploy container in Azure (no local Docker needed)
+./scripts/build-in-azure.sh
 
 # Set environment variables
 ./scripts/set-env-vars.sh
@@ -108,8 +110,9 @@ npm run dev
 - **Responsive Design**: Works on all devices
 
 ### ☁️ Azure Integration
-- **Container Apps**: Scalable serverless compute
+- **Function App (Container-based)**: Scalable serverless compute with custom containers
 - **Blob Storage**: Reliable file storage
+- **Queue Storage**: Job processing queue
 - **Automatic Scaling**: Based on demand
 - **Monitoring**: Application Insights integration
 
@@ -169,7 +172,9 @@ npm run dev
 | Component | URL/Endpoint |
 |-----------|--------------|
 | **Web App** | http://localhost:3000 |
-| **Azure Function** | https://mediaprocessor.happydune-07a3bc2a.germanywestcentral.azurecontainerapps.io |
+| **Azure Function App** | https://mediaprocessor2.azurewebsites.net |
+| **Health Check** | https://mediaprocessor2.azurewebsites.net/api/health |
+| **Test Endpoint** | https://mediaprocessor2.azurewebsites.net/api/test-process |
 | **Storage Account** | mediablobazfct.blob.core.windows.net |
 | **Container Registry** | mediacompressorregistry.azurecr.io |
 

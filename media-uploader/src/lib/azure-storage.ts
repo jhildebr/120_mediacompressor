@@ -54,9 +54,11 @@ export const getFileMetadata = async (blobName: string, containerName: string = 
   const blobServiceClient = getBlobServiceClient();
   const containerClient = blobServiceClient.getContainerClient(containerName);
   const blobClient = containerClient.getBlobClient(blobName);
-  
+
   try {
+    console.log(`[getFileMetadata] Attempting to get metadata for: ${blobName} in container: ${containerName}`);
     const properties = await blobClient.getProperties();
+    console.log(`[getFileMetadata] Successfully retrieved metadata for: ${blobName}`);
     return {
       name: blobName,
       size: properties.contentLength,
@@ -66,7 +68,10 @@ export const getFileMetadata = async (blobName: string, containerName: string = 
       url: await generateSasToken(blobName, containerName),
     };
   } catch (error) {
-    console.error('Error getting file metadata:', error);
+    console.error(`[getFileMetadata] Error getting metadata for blob: ${blobName} in container: ${containerName}`, error);
+    if (error instanceof Error) {
+      console.error(`[getFileMetadata] Error name: ${error.name}, message: ${error.message}`);
+    }
     return null;
   }
 };
@@ -110,16 +115,23 @@ export const checkProcessedFile = async (originalBlobName: string) => {
 
   // Retry a few times to absorb transient 404 right after completion
   for (let attempt = 0; attempt < 4; attempt++) {
+    console.log(`[checkProcessedFile] Attempt ${attempt + 1}/4 for originalBlobName: ${originalBlobName}`);
     // Try both naming patterns per attempt
     for (const name of tryNames) {
-      // eslint-disable-next-line no-console
-      console.debug('[checkProcessedFile] attempt', attempt + 1, 'checking', name);
+      console.log(`[checkProcessedFile] Trying blob name: ${name} in 'processed' container`);
       const meta = await getFileMetadata(name, 'processed');
-      if (meta) return meta;
+      if (meta) {
+        console.log(`[checkProcessedFile] SUCCESS: Found processed file: ${name}`);
+        return meta;
+      } else {
+        console.log(`[checkProcessedFile] Not found: ${name}`);
+      }
     }
     // Backoff: 0.5s, 1s, 2s
     if (attempt < 3) {
-      await sleep(500 * Math.pow(2, attempt));
+      const waitTime = 500 * Math.pow(2, attempt);
+      console.log(`[checkProcessedFile] Waiting ${waitTime}ms before next attempt...`);
+      await sleep(waitTime);
     }
   }
 
