@@ -34,7 +34,7 @@ az storage blob upload \
   --container-name uploads \
   --file media-uploader/test.png \
   --name "$BLOB_NAME" \
-  --auth-mode login \
+  --auth-mode key \
   --output none
 
 echo -e "${GREEN}✓ Upload complete${NC}\n"

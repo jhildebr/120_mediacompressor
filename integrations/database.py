@@ -21,7 +21,16 @@ def extract_step_id_from_blob_name(blob_name: str) -> str:
 
 
 def update_database(blob_name: str, result: Dict) -> None:
-    step_id = extract_step_id_from_blob_name(blob_name)
+    """Update SIMPI database with processing results.
+
+    Gracefully handles cases where blob name doesn't contain a step ID.
+    """
+    # Try to extract step ID, skip DB update if not found
+    try:
+        step_id = extract_step_id_from_blob_name(blob_name)
+    except ValueError as e:
+        logging.info("Skipping database update: %s", str(e))
+        return
 
     api_payload = {
         "processing_status": result.get("status", "unknown"),
@@ -40,12 +49,14 @@ def update_database(blob_name: str, result: Dict) -> None:
     api_url = f"{base_url}/api/v1/steps/{step_id}/media"
     headers = {"Authorization": f"Bearer {token}", "Content-Type": "application/json"}
 
-    response = requests.put(api_url, json=api_payload, headers=headers, timeout=20)
-    if not response.ok:
-        logging.error("Failed to update database: %s", response.text)
-        raise RuntimeError("Database update failed")
-
-    logging.info("Successfully updated database for step %s", step_id)
+    try:
+        response = requests.put(api_url, json=api_payload, headers=headers, timeout=20)
+        if not response.ok:
+            logging.error("Failed to update database: %s", response.text)
+        else:
+            logging.info("Successfully updated database for step %s", step_id)
+    except Exception as e:
+        logging.error("Database update error: %s", str(e))
 
 
 def update_database_error(blob_name: str, error: str) -> None:

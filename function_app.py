@@ -1,4 +1,3 @@
-import base64
 import json
 import logging
 import os
@@ -6,11 +5,9 @@ import time
 from datetime import datetime
 
 import azure.functions as func
-from azure.storage.queue import QueueServiceClient
 from azure.storage.blob import BlobServiceClient
 
 from integrations.database import update_database
-from integrations.errors import handle_processing_error
 from integrations.notifications import send_completion_notification
 from integrations.tracking import (
     create_job_record,
@@ -29,12 +26,6 @@ app = func.FunctionApp()
 START_TIME = time.time()
 
 
-def _determine_priority(file_size_bytes: int) -> str:
-    if file_size_bytes < 10 * 1024 * 1024:
-        return "high"
-    return "normal"
-
-
 @app.blob_trigger(
     arg_name="myblob",
     path="uploads/{name}",
@@ -43,8 +34,9 @@ def _determine_priority(file_size_bytes: int) -> str:
 def process_media_upload(myblob: func.InputStream) -> None:
     """Triggered when a file is uploaded to the 'uploads' container.
 
-    Creates a processing job and enqueues it for downstream processing.
+    Processes the media file directly (no queuing).
     """
+    blob_name = None
     try:
         logging.info("=== BLOB TRIGGER STARTED ===")
         logging.info("Blob name: %s", myblob.name)
@@ -56,95 +48,23 @@ def process_media_upload(myblob: func.InputStream) -> None:
 
         # Ensure we have a valid length
         file_size = int(myblob.length) if myblob.length else 0
-        priority = _determine_priority(file_size)
         file_extension = blob_name.lower().split(".")[-1] if "." in blob_name else "unknown"
 
-        logging.info("File size: %s, Priority: %s, Type: %s", file_size, priority, file_extension)
+        logging.info("File size: %s, Type: %s", file_size, file_extension)
 
         # Create job tracking record
         create_job_record(blob_name, file_size, file_extension)
 
-        job = {
-            "blob_name": blob_name,
-            "file_size": file_size,
-            "priority": priority,
-            "timestamp": datetime.utcnow().isoformat(),
-            "retry_count": 0,
-        }
-
-        logging.info("Created job: %s", job)
-
-        queue_client = QueueServiceClient.from_connection_string(
-            os.environ["AzureWebJobsStorage"]
-        ).get_queue_client("media-processing-queue")
-
-        # Create message without base64 encoding to avoid padding issues
-        message_content = json.dumps(job)
-        visibility_timeout = 0 if priority == "high" else 30
-        queue_client.send_message(message_content, visibility_timeout=visibility_timeout)
-
-        logging.info("Successfully queued processing job for %s", blob_name)
-        logging.info("=== BLOB TRIGGER COMPLETED ===")
-
-    except Exception as exc:
-        logging.error("Blob trigger failed: %s", str(exc))
-        # Update job status to failed
-        try:
-            blob_name = myblob.name.split("/")[-1] if myblob.name else "unknown"
-            update_job_status(blob_name, "failed", error_message=str(exc))
-        except Exception:
-            pass
-
-        # Send error to poison queue for manual investigation
-        try:
-            error_job = {
-                "blob_name": blob_name,
-                "error": str(exc),
-                "timestamp": datetime.utcnow().isoformat(),
-            }
-            queue_client = QueueServiceClient.from_connection_string(
-                os.environ["AzureWebJobsStorage"]
-            ).get_queue_client("media-processing-poison-queue")
-            queue_client.send_message(json.dumps(error_job))
-        except Exception as poison_exc:
-            logging.error("Failed to send to poison queue: %s", str(poison_exc))
-
-
-@app.queue_trigger(
-    arg_name="msg",
-    queue_name="media-processing-queue",
-    connection="AzureWebJobsStorage",
-)
-def process_media_queue(msg: func.QueueMessage) -> None:
-    """Process media compression jobs from the queue."""
-    job = None
-    blob_name = None
-    try:
-        logging.info("=== QUEUE TRIGGER STARTED ===")
-        logging.info("Message ID: %s", msg.id)
-
-        # Try to parse the message body directly first (new format)
-        try:
-            job = json.loads(msg.get_body().decode())
-        except (json.JSONDecodeError, UnicodeDecodeError):
-            # Fallback to base64 decoding for backward compatibility
-            job = json.loads(base64.b64decode(msg.get_body()).decode())
-
-        logging.info("Processing job: %s", job)
-
-        blob_name = job["blob_name"]
-        file_extension = blob_name.lower().split(".")[-1]
-        logging.info("Blob name: %s, File extension: %s", blob_name, file_extension)
-
         # Update status to processing
         update_job_status(blob_name, "processing")
 
+        # Process directly based on file type
         if file_extension in ["mp4", "mov", "avi", "webm"]:
             logging.info("Processing as VIDEO")
-            result = process_video(blob_name, job)
+            result = process_video(blob_name, {"blob_name": blob_name, "file_size": file_size})
         elif file_extension in ["jpg", "jpeg", "png", "gif", "webp"]:
             logging.info("Processing as IMAGE")
-            result = process_image(blob_name, job)
+            result = process_image(blob_name, {"blob_name": blob_name, "file_size": file_size})
         else:
             raise ValueError(f"Unsupported file type: {file_extension}")
 
@@ -171,17 +91,13 @@ def process_media_queue(msg: func.QueueMessage) -> None:
         except Exception as cleanup_exc:
             logging.warning("Failed to delete upload blob %s: %s", blob_name, str(cleanup_exc))
 
-        logging.info("=== QUEUE TRIGGER COMPLETED SUCCESSFULLY for %s ===", blob_name)
+        logging.info("=== BLOB TRIGGER COMPLETED SUCCESSFULLY for %s ===", blob_name)
 
-    except Exception as exc:  # pylint: disable=broad-except
-        logging.error("Processing failed: %s", str(exc))
-
+    except Exception as exc:
+        logging.error("Blob trigger processing failed: %s", str(exc))
         # Update job status to failed
         if blob_name:
             update_job_status(blob_name, "failed", error_message=str(exc))
-
-        safe_job = job or {"blob_name": "unknown", "retry_count": 0}
-        handle_processing_error(msg, safe_job, str(exc))
 
 
 @app.route(route="health", auth_level=func.AuthLevel.ANONYMOUS)
@@ -213,8 +129,8 @@ def health(req: func.HttpRequest) -> func.HttpResponse:  # type: ignore[override
             "host_uptime_seconds": int(time.time() - START_TIME),
             "functions": [
                 "process_media_upload",
-                "process_media_queue",
                 "test_process",
+                "cleanup_old_files",
             ],
         }
         return func.HttpResponse(
@@ -225,6 +141,78 @@ def health(req: func.HttpRequest) -> func.HttpResponse:  # type: ignore[override
     except Exception as exc:  # pragma: no cover
         return func.HttpResponse(
             body=json.dumps({"status": "error", "error": str(exc)}),
+            mimetype="application/json",
+            status_code=500,
+        )
+
+
+@app.route(route="version", auth_level=func.AuthLevel.ANONYMOUS)
+def version_check(req: func.HttpRequest) -> func.HttpResponse:  # type: ignore[override]
+    """Version endpoint for deployment verification.
+
+    Returns commit SHA and instance ID to verify all EP1 workers
+    are running the same code version.
+    """
+    try:
+        # Get commit SHA from environment (set during deployment)
+        commit_sha = os.environ.get("COMMIT_SHA", "unknown")
+
+        # Get instance ID to verify we're hitting different workers
+        instance_id = os.environ.get("WEBSITE_INSTANCE_ID", "unknown")
+
+        # Get hostname to further identify the instance
+        hostname = os.environ.get("COMPUTERNAME", os.environ.get("HOSTNAME", "unknown"))
+
+        body = {
+            "version": commit_sha,
+            "instance": instance_id,
+            "hostname": hostname,
+            "uptime_seconds": int(time.time() - START_TIME),
+            "timestamp": datetime.utcnow().isoformat(),
+        }
+
+        return func.HttpResponse(
+            body=json.dumps(body),
+            mimetype="application/json",
+            status_code=200,
+        )
+    except Exception as exc:
+        return func.HttpResponse(
+            body=json.dumps({"error": str(exc)}),
+            mimetype="application/json",
+            status_code=500,
+        )
+
+
+@app.route(route="wherefrom", auth_level=func.AuthLevel.ANONYMOUS)
+def wherefrom(req: func.HttpRequest) -> func.HttpResponse:  # type: ignore[override]
+    """Diagnostic endpoint to verify module import locations.
+
+    Shows where Python worker is importing modules from to identify
+    potential shadowing by Azure Files mount.
+    """
+    try:
+        import sys
+        from integrations import database
+
+        info = {
+            "instance": os.environ.get("WEBSITE_INSTANCE_ID", "unknown"),
+            "script_root": os.environ.get("AzureWebJobsScriptRoot", "unknown"),
+            "cwd": os.getcwd(),
+            "sys_path": sys.path,
+            "database_file": getattr(database, "__file__", None),
+            "database_mtime": os.path.getmtime(database.__file__) if hasattr(database, "__file__") and database.__file__ else None,
+            "timestamp": time.time(),
+        }
+
+        return func.HttpResponse(
+            body=json.dumps(info),
+            mimetype="application/json",
+            status_code=200,
+        )
+    except Exception as exc:
+        return func.HttpResponse(
+            body=json.dumps({"error": str(exc)}),
             mimetype="application/json",
             status_code=500,
         )

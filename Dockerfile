@@ -28,12 +28,17 @@ COPY integrations/ ./integrations/
 COPY config/ ./config/
 COPY host.json ./
 
-# Embed build metadata for UI/health
+# Embed build metadata for version verification
 ARG BUILD_TIME
+ARG COMMIT_SHA
 RUN echo ${BUILD_TIME:-unknown} > BUILD_TIME
+RUN echo ${COMMIT_SHA:-unknown} > COMMIT_SHA
 
-# Set environment variables
-ENV AzureWebJobsScriptRoot=/home/site/wwwroot \
+# CRITICAL: Prevent Python bytecode caching issues
+# This ensures fresh imports on every container start
+ENV PYTHONDONTWRITEBYTECODE=1 \
+    PYTHONUNBUFFERED=1 \
+    AzureWebJobsScriptRoot=/home/site/wwwroot \
     AzureFunctionsJobHost__Logging__Console__IsEnabled=true \
     PYTHONPATH=/home/site/wwwroot
 

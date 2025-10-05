@@ -8,7 +8,16 @@ from integrations.database import extract_step_id_from_blob_name
 
 
 def send_completion_notification(blob_name: str, result: Dict) -> None:
-    step_id = extract_step_id_from_blob_name(blob_name)
+    """Send completion notification via SignalR and webhook.
+
+    Gracefully handles cases where blob name doesn't contain a step ID.
+    """
+    # Try to extract step ID, skip notification if not found
+    try:
+        step_id = extract_step_id_from_blob_name(blob_name)
+    except ValueError as e:
+        logging.info("Skipping notification: %s", str(e))
+        return
 
     payload = {
         "target": "MediaProcessingComplete",
