@@ -4,7 +4,8 @@ set -e
 # Configuration
 API_KEY="c94f3b36eda2333960602f81be1709c918327d758d19033afe7a7c3375b9bceb"
 STORAGE_ACCOUNT="mediablobazfct"
-FUNCTION_URL="https://mediaprocessor2.azurewebsites.net/api"
+FUNCTION_URL="https://mediaprocessor-b2.azurewebsites.net/api"  # App Service B2 (current)
+# FUNCTION_URL="https://mediaprocessor2.azurewebsites.net/api"  # Functions EP1 (legacy)
 RESOURCE_GROUP="rg-11-video-compressor-az-function"
 
 # Colors for output
@@ -35,15 +36,36 @@ az storage blob upload \
   --file media-uploader/test.png \
   --name "$BLOB_NAME" \
   --auth-mode key \
-  --output none
+  --output none 2>&1 | grep -v "WARNING" || true
 
 echo -e "${GREEN}✓ Upload complete${NC}\n"
 
-# Step 3: Wait a moment for blob trigger to fire
-echo -e "${BLUE}Step 2: Waiting for blob trigger (3 seconds)${NC}"
-sleep 3
+# Step 2: Trigger processing via API
+echo -e "${BLUE}Step 2: Calling /api/process${NC}"
+PROCESS_RESPONSE=$(curl -s -X POST "${FUNCTION_URL}/process" \
+  -H "Content-Type: application/json" \
+  -d "{\"blob_name\": \"${BLOB_NAME}\"}")
 
-# Step 4: Check status with API key
+PROCESS_STATUS=$(echo "$PROCESS_RESPONSE" | jq -r '.status // "error"')
+
+if [ "$PROCESS_STATUS" = "success" ]; then
+    echo -e "${GREEN}✓ Processing completed immediately!${NC}\n"
+    echo -e "${BLUE}Result:${NC}"
+    echo "$PROCESS_RESPONSE" | jq .
+
+    COMPRESSION_RATIO=$(echo "$PROCESS_RESPONSE" | jq -r '.result.compression_ratio')
+    PROCESSING_TIME=$(echo "$PROCESS_RESPONSE" | jq -r '.result.processing_time')
+    OUTPUT_URL=$(echo "$PROCESS_RESPONSE" | jq -r '.result.output_url')
+
+    echo -e "\n${GREEN}=== Results ===${NC}"
+    echo "Compression Ratio: ${COMPRESSION_RATIO}"
+    echo "Processing Time: ${PROCESSING_TIME}s"
+    echo -e "Download URL: ${BLUE}${OUTPUT_URL}${NC}"
+    exit 0
+fi
+
+# If not immediate success, poll status
+echo -e "${YELLOW}Processing not immediate, polling status...${NC}\n"
 echo -e "${BLUE}Step 3: Checking processing status${NC}\n"
 
 check_status() {

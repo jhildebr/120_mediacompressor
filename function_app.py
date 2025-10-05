@@ -1,6 +1,7 @@
 import json
 import logging
 import os
+import threading
 import time
 from datetime import datetime
 
@@ -24,80 +25,6 @@ from processing.video import process_video
 app = func.FunctionApp()
 
 START_TIME = time.time()
-
-
-@app.blob_trigger(
-    arg_name="myblob",
-    path="uploads/{name}",
-    connection="AzureWebJobsStorage",
-)
-def process_media_upload(myblob: func.InputStream) -> None:
-    """Triggered when a file is uploaded to the 'uploads' container.
-
-    Processes the media file directly (no queuing).
-    """
-    blob_name = None
-    try:
-        logging.info("=== BLOB TRIGGER STARTED ===")
-        logging.info("Blob name: %s", myblob.name)
-        logging.info("Blob length: %s", myblob.length)
-
-        # Extract just the blob file name (strip 'uploads/' path if present)
-        blob_name = myblob.name.split("/")[-1] if myblob.name else "unknown"
-        logging.info("Extracted blob_name: %s", blob_name)
-
-        # Ensure we have a valid length
-        file_size = int(myblob.length) if myblob.length else 0
-        file_extension = blob_name.lower().split(".")[-1] if "." in blob_name else "unknown"
-
-        logging.info("File size: %s, Type: %s", file_size, file_extension)
-
-        # Create job tracking record
-        create_job_record(blob_name, file_size, file_extension)
-
-        # Update status to processing
-        update_job_status(blob_name, "processing")
-
-        # Process directly based on file type
-        if file_extension in ["mp4", "mov", "avi", "webm"]:
-            logging.info("Processing as VIDEO")
-            result = process_video(blob_name, {"blob_name": blob_name, "file_size": file_size})
-        elif file_extension in ["jpg", "jpeg", "png", "gif", "webp"]:
-            logging.info("Processing as IMAGE")
-            result = process_image(blob_name, {"blob_name": blob_name, "file_size": file_size})
-        else:
-            raise ValueError(f"Unsupported file type: {file_extension}")
-
-        logging.info("Processing result: %s", result)
-
-        # Update status to completed
-        update_job_status(blob_name, "completed", result=result)
-
-        # Update database and notify
-        logging.info("Updating database for %s", blob_name)
-        update_database(blob_name, result)
-
-        logging.info("Sending completion notification for %s", blob_name)
-        send_completion_notification(blob_name, result)
-
-        # Cleanup: Delete original upload blob immediately after successful processing
-        try:
-            logging.info("Deleting original upload blob: %s", blob_name)
-            blob_service = BlobServiceClient.from_connection_string(
-                os.environ["AzureWebJobsStorage"]
-            )
-            blob_service.get_blob_client(container="uploads", blob=blob_name).delete_blob()
-            logging.info("Successfully deleted upload blob: %s", blob_name)
-        except Exception as cleanup_exc:
-            logging.warning("Failed to delete upload blob %s: %s", blob_name, str(cleanup_exc))
-
-        logging.info("=== BLOB TRIGGER COMPLETED SUCCESSFULLY for %s ===", blob_name)
-
-    except Exception as exc:
-        logging.error("Blob trigger processing failed: %s", str(exc))
-        # Update job status to failed
-        if blob_name:
-            update_job_status(blob_name, "failed", error_message=str(exc))
 
 
 @app.route(route="health", auth_level=func.AuthLevel.ANONYMOUS)
@@ -127,10 +54,11 @@ def health(req: func.HttpRequest) -> func.HttpResponse:  # type: ignore[override
             "build_time": build_time,
             "bundle_version": bundle_version,
             "host_uptime_seconds": int(time.time() - START_TIME),
-            "functions": [
-                "process_media_upload",
-                "test_process",
-                "cleanup_old_files",
+            "endpoints": [
+                "POST /api/process",
+                "GET /api/status",
+                "GET /api/health",
+                "GET /api/version",
             ],
         }
         return func.HttpResponse(
@@ -296,9 +224,14 @@ def get_status(req: func.HttpRequest) -> func.HttpResponse:  # type: ignore[over
         )
 
 
-@app.route(route="test-process", auth_level=func.AuthLevel.ANONYMOUS, methods=["POST"])
-def test_process(req: func.HttpRequest) -> func.HttpResponse:  # type: ignore[override]
-    """Test endpoint to process a file directly without using the queue."""
+@app.route(route="process", auth_level=func.AuthLevel.ANONYMOUS, methods=["POST"])
+def process_media(req: func.HttpRequest) -> func.HttpResponse:  # type: ignore[override]
+    """Main processing endpoint - call this after uploading blob to storage.
+
+    POST /api/process
+    Body: {"blob_name": "upload-123.png"}
+    """
+    blob_name = None
     try:
         req_body = req.get_json()
         blob_name = req_body.get("blob_name")
@@ -310,29 +243,39 @@ def test_process(req: func.HttpRequest) -> func.HttpResponse:  # type: ignore[ov
                 status_code=400,
             )
 
-        logging.info("=== TEST PROCESS STARTED ===")
+        logging.info("=== PROCESSING STARTED ===")
         logging.info("Blob name: %s", blob_name)
 
-        # Create a mock job
-        job = {
-            "blob_name": blob_name,
-            "file_size": 0,
-            "priority": "high",
-            "timestamp": datetime.utcnow().isoformat(),
-            "retry_count": 0,
-        }
+        # Get blob metadata for file size
+        try:
+            blob_service = BlobServiceClient.from_connection_string(
+                os.environ["AzureWebJobsStorage"]
+            )
+            blob_client = blob_service.get_blob_client(container="uploads", blob=blob_name)
+            blob_properties = blob_client.get_blob_properties()
+            file_size = blob_properties.size
+        except Exception:
+            file_size = 0
 
-        # Determine file type and process
-        file_extension = blob_name.lower().split(".")[-1]
-        logging.info("File extension: %s", file_extension)
+        # Determine file type
+        file_extension = blob_name.lower().split(".")[-1] if "." in blob_name else "unknown"
+        logging.info("File size: %s, Type: %s", file_size, file_extension)
 
+        # Create job tracking record
+        create_job_record(blob_name, file_size, file_extension)
+
+        # Update status to processing
+        update_job_status(blob_name, "processing")
+
+        # Process based on file type
         if file_extension in ["mp4", "mov", "avi", "webm"]:
             logging.info("Processing as VIDEO")
-            result = process_video(blob_name, job)
+            result = process_video(blob_name, {"blob_name": blob_name, "file_size": file_size})
         elif file_extension in ["jpg", "jpeg", "png", "gif", "webp"]:
             logging.info("Processing as IMAGE")
-            result = process_image(blob_name, job)
+            result = process_image(blob_name, {"blob_name": blob_name, "file_size": file_size})
         else:
+            update_job_status(blob_name, "failed", error_message=f"Unsupported file type: {file_extension}")
             return func.HttpResponse(
                 body=json.dumps({"error": f"Unsupported file type: {file_extension}"}),
                 mimetype="application/json",
@@ -341,11 +284,21 @@ def test_process(req: func.HttpRequest) -> func.HttpResponse:  # type: ignore[ov
 
         logging.info("Processing result: %s", result)
 
+        # Update status to completed
+        update_job_status(blob_name, "completed", result=result)
+
         # Update database and notify
         update_database(blob_name, result)
         send_completion_notification(blob_name, result)
 
-        logging.info("=== TEST PROCESS COMPLETED ===")
+        # Cleanup: Delete original upload blob
+        try:
+            blob_client.delete_blob()
+            logging.info("Deleted upload blob: %s", blob_name)
+        except Exception as cleanup_exc:
+            logging.warning("Failed to delete upload blob: %s", str(cleanup_exc))
+
+        logging.info("=== PROCESSING COMPLETED ===")
 
         return func.HttpResponse(
             body=json.dumps({
@@ -358,7 +311,13 @@ def test_process(req: func.HttpRequest) -> func.HttpResponse:  # type: ignore[ov
         )
 
     except Exception as exc:
-        logging.error("Test processing failed: %s", str(exc))
+        logging.error("Processing failed: %s", str(exc))
+        # Update job status to failed
+        if blob_name:
+            try:
+                update_job_status(blob_name, "failed", error_message=str(exc))
+            except Exception:
+                pass
         return func.HttpResponse(
             body=json.dumps({"status": "error", "error": str(exc)}),
             mimetype="application/json",
@@ -366,16 +325,13 @@ def test_process(req: func.HttpRequest) -> func.HttpResponse:  # type: ignore[ov
         )
 
 
-@app.timer_trigger(arg_name="timer", schedule="0 */5 * * * *")
-def cleanup_old_files(timer: func.TimerRequest) -> None:
-    """Cleanup timer that runs every 5 minutes.
+def cleanup_old_files() -> None:
+    """Cleanup function that deletes processed files older than 10 minutes.
 
-    Deletes:
-    - Processed files older than 10 minutes
-    - Associated job tracking records
+    Runs in background thread every 5 minutes.
     """
     try:
-        logging.info("=== CLEANUP TIMER STARTED ===")
+        logging.info("=== CLEANUP STARTED ===")
 
         # Get completed jobs older than 10 minutes
         old_jobs = get_old_completed_jobs(minutes_old=10)
@@ -427,5 +383,21 @@ def cleanup_old_files(timer: func.TimerRequest) -> None:
         )
 
     except Exception as exc:
-        logging.error("Cleanup timer failed: %s", str(exc))
+        logging.error("Cleanup failed: %s", str(exc))
+
+
+def cleanup_worker():
+    """Background worker that runs cleanup every 5 minutes."""
+    while True:
+        try:
+            time.sleep(300)  # 5 minutes
+            cleanup_old_files()
+        except Exception as exc:
+            logging.error("Cleanup worker error: %s", str(exc))
+
+
+# Start cleanup worker in background thread
+cleanup_thread = threading.Thread(target=cleanup_worker, daemon=True)
+cleanup_thread.start()
+logging.info("Background cleanup worker started")
 
