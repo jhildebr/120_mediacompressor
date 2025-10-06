@@ -266,14 +266,30 @@ Set in Azure Portal → App Service → Configuration:
 ## 🎨 Supported Formats
 
 ### Images
-- **Input:** PNG, JPG, JPEG, GIF, WebP
-- **Output:** Optimized PNG/JPG (maintains format)
+- **Input:** PNG, JPG, JPEG, GIF, BMP, WebP
+- **Output:** WebP (always)
 - **Processing:** Pillow with quality optimization
 
+**Compression Settings:**
+- **Format:** WebP
+- **Quality:** 80 (range: 0-100)
+- **Compression Method:** 6 (best compression)
+- **Max Resolution:** 2048px (larger images are scaled down)
+- **Color Mode:** RGB (preserves RGBA if transparency detected)
+- **Resampling:** LANCZOS (high quality)
+
 ### Videos
-- **Input:** MP4, MOV, AVI, WebM
-- **Output:** H.264 MP4
-- **Processing:** FFmpeg with CRF 23, preset medium
+- **Input:** MP4, MOV, AVI, WebM, FLV, WMV
+- **Output:** H.264 MP4 (no audio)
+- **Processing:** FFmpeg with fast compression
+
+**Compression Settings:**
+- **Video Codec:** libx264 (H.264)
+- **Quality (CRF):** 28 (range: 0-51, lower = better quality)
+- **Encoding Speed:** veryfast preset
+- **Max Resolution:** 1280x720 (scales down keeping aspect ratio if larger)
+- **Audio:** Removed (no audio track)
+- **Streaming:** +faststart enabled (web-optimized)
 
 ## 🧹 Automatic Cleanup
 

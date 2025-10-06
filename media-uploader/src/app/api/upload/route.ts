@@ -63,29 +63,23 @@ export async function POST(request: NextRequest) {
     const blobName = await uploadFile(file);
     console.log(`[upload] File uploaded successfully with blob name: ${blobName}`);
 
-    // Enqueue processing job to ensure processing starts
-    const connectionString = process.env.AZURE_STORAGE_CONNECTION_STRING;
-    if (!connectionString) {
-      throw new Error('AZURE_STORAGE_CONNECTION_STRING is not set');
+    // Trigger processing directly via App Service B2
+    const processorUrl = process.env.PROCESSOR_URL || 'https://mediaprocessor-b2.azurewebsites.net';
+    console.log(`[upload] Triggering processing for: ${blobName} at ${processorUrl}`);
+
+    const processResponse = await fetch(`${processorUrl}/api/process`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ blob_name: blobName }),
+    });
+
+    const processResult = await processResponse.json();
+    console.log(`[upload] Processing result:`, processResult);
+
+    if (processResult.status !== 'success') {
+      throw new Error(processResult.error || 'Processing failed');
     }
 
-    console.log(`[upload] Creating queue service and sending message for: ${blobName}`);
-    const queueService = QueueServiceClient.fromConnectionString(connectionString);
-    const queueClient = queueService.getQueueClient('media-processing-queue');
-    await queueClient.createIfNotExists();
-
-    const queueMessage = {
-      blob_name: blobName,
-      file_size: file.size,
-      priority: 'normal',
-      timestamp: new Date().toISOString(),
-      retry_count: 0,
-    };
-
-    console.log(`[upload] Sending queue message:`, queueMessage);
-    await queueClient.sendMessage(JSON.stringify(queueMessage));
-    console.log(`[upload] Queue message sent successfully for: ${blobName}`);
-    
     return NextResponse.json({
       success: true,
       blobName,
@@ -93,6 +87,8 @@ export async function POST(request: NextRequest) {
       fileSize: file.size,
       fileType: file.type,
       uploadTime: new Date().toISOString(),
+      // Include processing result for immediate download
+      processingResult: processResult.result,
     }, {
       headers: {
         'Access-Control-Allow-Origin': '*',

@@ -11,36 +11,26 @@ from processing import generate_processed_blob_sas_url
 
 
 def _build_ffmpeg_cmd(input_path: str, output_path: str, job: Dict) -> list[str]:
+    """Build FFmpeg command for fast H.264 compression (web-compatible MP4)."""
+    # H.264 with fast encoding, no audio, max 1280x720
     cmd: list[str] = [
         "ffmpeg",
         "-i",
         input_path,
         "-c:v",
-        "libx264",
+        "libx264",  # H.264 codec (faster than VP9, good web support)
         "-crf",
-        "23",
+        "28",  # Quality: 23=high, 28=balanced (lower = better quality)
         "-preset",
-        # Use ultrafast to minimize CPU time; adjust CRF to keep quality reasonable
-        "ultrafast",
-        "-c:a",
-        "aac",
-        "-b:a",
-        "128k",
+        "veryfast",  # Speed preset (faster encoding)
+        "-vf",
+        "scale='min(1280,iw)':'min(720,ih)':force_original_aspect_ratio=decrease",  # Scale down to max 1280x720, keep aspect ratio
+        "-an",  # Remove audio
         "-movflags",
-        "+faststart",
+        "+faststart",  # Enable streaming
         "-y",
         output_path,
     ]
-
-    try:
-        file_size: int = int(job.get("file_size", 0))
-    except Exception:  # pragma: no cover - defensive
-        file_size = 0
-
-    if file_size > 50 * 1024 * 1024:
-        cmd.extend(["-vf", "scale=1280:720"])  # HD
-    elif file_size > 10 * 1024 * 1024:
-        cmd.extend(["-vf", "scale=854:480"])  # SD
 
     return cmd
 
@@ -70,38 +60,17 @@ def process_video(blob_name: str, job: Dict) -> Dict:
             logging.info("Created output temp file: %s", output_path)
 
         try:
-            # 1) Fast path: container rewrite only (stream copy) if source is already compatible
-            # This is near-instantaneous for small files.
-            fast_cmd = [
-                "ffmpeg",
-                "-i",
-                temp_input.name,
-                "-c:v",
-                "copy",
-                "-c:a",
-                "copy",
-                "-movflags",
-                "+faststart",
-                "-y",
-                output_path,
-            ]
-            logging.info("Attempting fast stream-copy: %s", " ".join(fast_cmd))
-            fast = subprocess.run(
-                fast_cmd, capture_output=True, text=True, timeout=int(os.getenv("MAX_PROCESSING_TIME", "300"))
+            # Convert to H.264 MP4 for fast compression
+            cmd = _build_ffmpeg_cmd(temp_input.name, output_path, job)
+            logging.info("Running FFmpeg H.264 compression: %s", " ".join(cmd))
+            result = subprocess.run(
+                cmd, capture_output=True, text=True, timeout=int(os.getenv("MAX_PROCESSING_TIME", "300"))
             )
-            if fast.returncode != 0:
-                logging.info("Fast path failed, falling back to re-encode. stderr: %s", fast.stderr)
-                # 2) Fallback: re-encode with ultrafast preset
-                cmd = _build_ffmpeg_cmd(temp_input.name, output_path, job)
-                logging.info("Running FFmpeg re-encode: %s", " ".join(cmd))
-                result = subprocess.run(
-                    cmd, capture_output=True, text=True, timeout=int(os.getenv("MAX_PROCESSING_TIME", "300"))
-                )
-                logging.info("FFmpeg return code: %s", result.returncode)
-                logging.info("FFmpeg stdout: %s", result.stdout)
-                logging.info("FFmpeg stderr: %s", result.stderr)
-                if result.returncode != 0:
-                    raise RuntimeError(f"FFmpeg failed: {result.stderr}")
+            logging.info("FFmpeg return code: %s", result.returncode)
+            logging.info("FFmpeg stdout: %s", result.stdout)
+            logging.info("FFmpeg stderr: %s", result.stderr)
+            if result.returncode != 0:
+                raise RuntimeError(f"FFmpeg failed: {result.stderr}")
 
             # Upload compressed video with 'processed-' prefix in 'processed' container
             output_blob_name = blob_name.replace('upload-', 'processed-')

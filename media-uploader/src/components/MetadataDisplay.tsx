@@ -10,6 +10,13 @@ interface MetadataDisplayProps {
   fileSize: number;
   fileType: string;
   uploadTime: string;
+  processingResult?: {
+    output_url: string;
+    compression_ratio: number;
+    processing_time: number;
+    original_size: number;
+    compressed_size: number;
+  };
 }
 
 interface FileMetadata {
@@ -32,18 +39,25 @@ interface StatusResponse {
   };
 }
 
-export default function MetadataDisplay({ 
-  blobName, 
-  fileName, 
-  fileSize, 
-  fileType, 
-  uploadTime 
+export default function MetadataDisplay({
+  blobName,
+  fileName,
+  fileSize,
+  fileType,
+  uploadTime,
+  processingResult
 }: MetadataDisplayProps) {
   const [metadata, setMetadata] = useState<{
     original?: FileMetadata;
     processed?: FileMetadata;
   } | null>(null);
-  const [status, setStatus] = useState<StatusResponse | null>(null);
+  const [status, setStatus] = useState<StatusResponse | null>(
+    processingResult ? {
+      status: 'completed',
+      message: 'File has been processed successfully',
+      downloadUrl: processingResult.output_url
+    } : null
+  );
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
 
@@ -85,14 +99,39 @@ export default function MetadataDisplay({
     }
   }, [blobName, metadata?.processed, fetchMetadata]);
 
+  // Handle immediate processing result
   useEffect(() => {
-    fetchMetadata();
-    fetchStatus();
-    
-    // Poll for status updates every 5 seconds
-    const interval = setInterval(fetchStatus, 5000);
-    return () => clearInterval(interval);
-  }, [blobName, fetchMetadata, fetchStatus]);
+    if (processingResult) {
+      const processedBlobName = blobName.replace('upload-', 'processed-');
+      setMetadata({
+        original: {
+          name: blobName,
+          size: processingResult.original_size,
+          contentType: fileType,
+          lastModified: uploadTime,
+          url: '' // Original blob is deleted after processing
+        },
+        processed: {
+          name: processedBlobName,
+          size: processingResult.compressed_size,
+          contentType: fileType,
+          lastModified: new Date().toISOString(),
+          url: processingResult.output_url
+        }
+      });
+      setLoading(false);
+    }
+  }, [processingResult, blobName, fileType, uploadTime]);
+
+  // Fallback: poll for status when no immediate result
+  useEffect(() => {
+    if (!processingResult) {
+      fetchMetadata();
+      fetchStatus();
+      const interval = setInterval(fetchStatus, 5000);
+      return () => clearInterval(interval);
+    }
+  }, [processingResult, fetchMetadata, fetchStatus]);
 
   const getStatusIcon = () => {
     switch (status?.status) {

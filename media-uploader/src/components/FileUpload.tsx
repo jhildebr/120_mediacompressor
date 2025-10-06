@@ -10,6 +10,13 @@ interface UploadResult {
   fileSize: number;
   fileType: string;
   uploadTime: string;
+  processingResult?: {
+    output_url: string;
+    compression_ratio: number;
+    processing_time: number;
+    original_size: number;
+    compressed_size: number;
+  };
 }
 
 interface FileUploadProps {

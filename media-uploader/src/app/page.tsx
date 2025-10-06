@@ -11,6 +11,13 @@ interface UploadResult {
   fileSize: number;
   fileType: string;
   uploadTime: string;
+  processingResult?: {
+    output_url: string;
+    compression_ratio: number;
+    processing_time: number;
+    original_size: number;
+    compressed_size: number;
+  };
 }
 
 export default function Home() {
@@ -165,6 +172,7 @@ export default function Home() {
               fileSize={uploadResult.fileSize}
               fileType={uploadResult.fileType}
               uploadTime={uploadResult.uploadTime}
+              processingResult={uploadResult.processingResult}
             />
           </div>
         )}

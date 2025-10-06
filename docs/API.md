@@ -8,6 +8,7 @@ Complete API reference for the Azure Media Compression System.
 
 ## Table of Contents
 
+- [Compression Specifications](#compression-specifications)
 - [Authentication](#authentication)
 - [Endpoints](#endpoints)
   - [GET /api/health](#get-apihealth)
@@ -17,6 +18,46 @@ Complete API reference for the Azure Media Compression System.
 - [Error Handling](#error-handling)
 - [Rate Limits](#rate-limits)
 - [Examples](#examples)
+
+---
+
+## Compression Specifications
+
+### Image Compression
+
+**Input Formats:** PNG, JPG, JPEG, GIF, BMP, WebP
+**Output Format:** WebP (always)
+
+**Settings:**
+- **Quality:** 80 (range: 0-100)
+- **Compression Method:** 6 (best compression)
+- **Max Resolution:** 2048px (larger images are scaled down proportionally)
+- **Color Mode:** RGB (preserves RGBA if transparency detected)
+- **Resampling:** LANCZOS (high quality)
+
+**Expected Results:**
+- 25-35% smaller than original PNG/JPG
+- Maintains visual quality
+- Web-optimized format with broad browser support
+
+### Video Compression
+
+**Input Formats:** MP4, MOV, AVI, WebM, FLV, WMV
+**Output Format:** H.264 MP4 (no audio)
+
+**Settings:**
+- **Video Codec:** libx264 (H.264)
+- **Quality (CRF):** 28 (range: 0-51, lower = better quality)
+- **Encoding Speed:** veryfast preset (optimized for speed)
+- **Max Resolution:** 1280x720 (scales down keeping aspect ratio if larger)
+- **Audio:** Removed (no audio track)
+- **Streaming:** +faststart enabled (web-optimized)
+
+**Expected Results:**
+- Significantly smaller file size (30-60% reduction typical)
+- Maintains good visual quality
+- Fast encoding for synchronous processing
+- Web-optimized for streaming
 
 ---
 
