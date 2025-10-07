@@ -56,6 +56,7 @@ def health(req: func.HttpRequest) -> func.HttpResponse:  # type: ignore[override
             "host_uptime_seconds": int(time.time() - START_TIME),
             "endpoints": [
                 "POST /api/process",
+                "POST /api/upload",
                 "GET /api/status",
                 "GET /api/health",
                 "GET /api/version",
@@ -318,6 +319,184 @@ def process_media(req: func.HttpRequest) -> func.HttpResponse:  # type: ignore[o
                 update_job_status(blob_name, "failed", error_message=str(exc))
             except Exception:
                 pass
+        return func.HttpResponse(
+            body=json.dumps({"status": "error", "error": str(exc)}),
+            mimetype="application/json",
+            status_code=500,
+        )
+
+
+@app.route(route="upload", auth_level=func.AuthLevel.ANONYMOUS, methods=["POST"])
+def upload_and_process(req: func.HttpRequest) -> func.HttpResponse:  # type: ignore[override]
+    """Accept file upload, compress it, and return compressed file data.
+
+    INTERIM ENDPOINT FOR TESTING - Not for production use.
+    This endpoint accepts direct file uploads and returns the compressed file.
+
+    POST /api/upload
+    Content-Type: multipart/form-data
+    Body: file field with file data
+
+    Returns: Compressed file as binary blob
+    """
+    blob_name = None
+    blob_client = None
+
+    try:
+        # Get uploaded file from multipart form data
+        files = req.files
+        if not files or 'file' not in files:
+            return func.HttpResponse(
+                body=json.dumps({"error": "No file provided. Use 'file' field in multipart form data."}),
+                mimetype="application/json",
+                status_code=400,
+            )
+
+        file_data = files['file']
+        original_filename = file_data.filename
+
+        logging.info("=== UPLOAD AND PROCESS STARTED ===")
+        logging.info("Original filename: %s", original_filename)
+
+        # Validate file type
+        file_extension = original_filename.lower().split(".")[-1] if "." in original_filename else "unknown"
+
+        allowed_extensions = ["mp4", "mov", "avi", "webm", "flv", "wmv", "jpg", "jpeg", "png", "gif", "bmp", "webp"]
+        if file_extension not in allowed_extensions:
+            return func.HttpResponse(
+                body=json.dumps({"error": f"Unsupported file type: {file_extension}. Supported: {', '.join(allowed_extensions)}"}),
+                mimetype="application/json",
+                status_code=400,
+            )
+
+        # Generate unique blob name
+        timestamp = int(time.time() * 1000)
+        blob_name = f"upload-{timestamp}.{file_extension}"
+
+        logging.info("Generated blob name: %s", blob_name)
+
+        # Upload file to Azure Blob Storage
+        blob_service = BlobServiceClient.from_connection_string(
+            os.environ["AzureWebJobsStorage"]
+        )
+        blob_client = blob_service.get_blob_client(container="uploads", blob=blob_name)
+
+        # Read file data
+        file_content = file_data.stream.read()
+        file_size = len(file_content)
+
+        logging.info("File size: %s bytes", file_size)
+
+        # Validate file size (max 100MB)
+        max_size = 100 * 1024 * 1024  # 100MB
+        if file_size > max_size:
+            return func.HttpResponse(
+                body=json.dumps({"error": "File too large. Maximum size is 100MB."}),
+                mimetype="application/json",
+                status_code=400,
+            )
+
+        # Upload to blob storage
+        blob_client.upload_blob(file_content, overwrite=True)
+        logging.info("Uploaded to Azure Storage: %s", blob_name)
+
+        # Create job tracking record
+        create_job_record(blob_name, file_size, file_extension)
+        update_job_status(blob_name, "processing")
+
+        # Process based on file type
+        if file_extension in ["mp4", "mov", "avi", "webm", "flv", "wmv"]:
+            logging.info("Processing as VIDEO")
+            result = process_video(blob_name, {"blob_name": blob_name, "file_size": file_size})
+        elif file_extension in ["jpg", "jpeg", "png", "gif", "bmp", "webp"]:
+            logging.info("Processing as IMAGE")
+            result = process_image(blob_name, {"blob_name": blob_name, "file_size": file_size})
+        else:
+            update_job_status(blob_name, "failed", error_message=f"Unsupported file type: {file_extension}")
+            return func.HttpResponse(
+                body=json.dumps({"error": f"Unsupported file type: {file_extension}"}),
+                mimetype="application/json",
+                status_code=400,
+            )
+
+        logging.info("Processing result: %s", result)
+
+        # Update status to completed
+        update_job_status(blob_name, "completed", result=result)
+
+        # Get processed blob URL
+        output_url = result.get("output_url")
+        processed_blob_name = blob_name.replace("upload-", "processed-")
+
+        # For videos, change extension to .mp4
+        if file_extension in ["mov", "avi", "webm", "flv", "wmv"]:
+            processed_blob_name = processed_blob_name.rsplit(".", 1)[0] + ".mp4"
+        # For images, change to .webp
+        elif file_extension in ["jpg", "jpeg", "png", "gif", "bmp"]:
+            processed_blob_name = processed_blob_name.rsplit(".", 1)[0] + ".webp"
+
+        logging.info("Downloading processed file: %s", processed_blob_name)
+
+        # Download compressed file from processed container
+        processed_blob_client = blob_service.get_blob_client(
+            container="processed",
+            blob=processed_blob_name
+        )
+        compressed_data = processed_blob_client.download_blob().readall()
+
+        logging.info("Compressed file size: %s bytes (ratio: %.2f%%)",
+                    len(compressed_data),
+                    result.get("compression_ratio", 0) * 100)
+
+        # Cleanup: Delete upload blob
+        try:
+            blob_client.delete_blob()
+            logging.info("Deleted upload blob: %s", blob_name)
+        except Exception as cleanup_exc:
+            logging.warning("Failed to delete upload blob: %s", str(cleanup_exc))
+
+        logging.info("=== UPLOAD AND PROCESS COMPLETED ===")
+
+        # Determine content type for response
+        if file_extension in ["mp4", "mov", "avi", "webm", "flv", "wmv"]:
+            content_type = "video/mp4"
+            output_filename = original_filename.rsplit(".", 1)[0] + ".mp4"
+        else:
+            content_type = "image/webp"
+            output_filename = original_filename.rsplit(".", 1)[0] + ".webp"
+
+        # Return compressed file as binary response
+        return func.HttpResponse(
+            body=compressed_data,
+            mimetype=content_type,
+            status_code=200,
+            headers={
+                "Content-Disposition": f'attachment; filename="{output_filename}"',
+                "X-Original-Size": str(file_size),
+                "X-Compressed-Size": str(len(compressed_data)),
+                "X-Compression-Ratio": str(result.get("compression_ratio", 0)),
+                "X-Processing-Time": str(result.get("processing_time", 0)),
+            }
+        )
+
+    except Exception as exc:
+        logging.error("Upload and process failed: %s", str(exc))
+
+        # Cleanup upload blob on error
+        if blob_name and blob_client:
+            try:
+                blob_client.delete_blob()
+                logging.info("Cleaned up upload blob after error: %s", blob_name)
+            except Exception:
+                pass
+
+        # Update job status to failed
+        if blob_name:
+            try:
+                update_job_status(blob_name, "failed", error_message=str(exc))
+            except Exception:
+                pass
+
         return func.HttpResponse(
             body=json.dumps({"status": "error", "error": str(exc)}),
             mimetype="application/json",
