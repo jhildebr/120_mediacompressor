@@ -114,10 +114,10 @@ echo ""
 az webapp config container set \
   --name "$WEB_APP" \
   --resource-group "$RESOURCE_GROUP" \
-  --docker-custom-image-name "$IMAGE_WITH_DIGEST" \
-  --docker-registry-server-url "https://$REGISTRY_LOGIN_SERVER" \
-  --docker-registry-server-user "$REGISTRY_USERNAME" \
-  --docker-registry-server-password "$REGISTRY_PASSWORD"
+  --container-image-name "$IMAGE_WITH_DIGEST" \
+  --container-registry-url "https://$REGISTRY_LOGIN_SERVER" \
+  --container-registry-user "$REGISTRY_USERNAME" \
+  --container-registry-password "$REGISTRY_PASSWORD"
 
 # Configure app settings
 echo "📝 Setting environment variables..."

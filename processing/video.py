@@ -79,7 +79,8 @@ def process_video(blob_name: str, job: Dict) -> Dict:
                 raise RuntimeError(f"FFmpeg failed: {result.stderr}")
 
             # Upload compressed video with 'processed-' prefix in 'processed' container
-            output_blob_name = blob_name.replace('upload-', 'processed-')
+            # Always change extension to .mp4 since all videos are converted to H.264 MP4
+            output_blob_name = blob_name.replace('upload-', 'processed-').rsplit('.', 1)[0] + '.mp4'
             logging.info("Uploading compressed video to processed container: %s", output_blob_name)
             # Ensure 'processed' container exists
             try:
