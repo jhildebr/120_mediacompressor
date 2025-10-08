@@ -347,11 +347,12 @@ public compressMedia(file: File): Observable<CompressionResult> {
 - **Time:** 1-2 seconds
 
 ### Video Compression (MOV → MP4)
-- **Input:** 20MB MOV (1080p)
+- **Input:** 20MB MOV (any resolution)
 - **Output:** Depends on duration (VBR @ 1.2 Mbps target)
 - **Bitrate:** 1.2 Mbps target, 2 Mbps max
 - **Resolution:** Max 1280x720 (aspect ratio preserved)
-- **Time:** 5-10 seconds (varies by duration)
+- **Preset:** fast (faster encoding, minimal quality loss)
+- **Time:** 5-8 seconds (varies by duration, faster with 'fast' preset)
 - **Note:** Output is 720p for optimal quality at 1.2 Mbps bitrate
 
 ---

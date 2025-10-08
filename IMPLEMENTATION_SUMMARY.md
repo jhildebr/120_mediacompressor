@@ -249,9 +249,13 @@ Once testing confirms compression quality/speed is acceptable:
 - **Processing time:** 1-2 seconds
 
 ### Video Compression
-- **MOV → MP4:** 40-60% reduction
-- **AVI → MP4:** 50-70% reduction
-- **Processing time:** 3-8 seconds (depends on size)
+- **Format:** Any video → H.264 MP4
+- **Settings:** VBR @ 1.2 Mbps target, 2 Mbps max
+- **Resolution:** Max 1280x720 (720p, aspect ratio preserved)
+- **Preset:** fast (faster encoding, minimal quality loss)
+- **Output size:** ~9MB per minute of video
+- **Processing time:** 3-8 seconds (depends on duration)
+- **Quality:** Excellent for instructional content
 
 ### Concurrent Capacity
 - **App Service B2:** 2 cores, 3.5GB RAM
