@@ -1,18 +1,11 @@
 VIDEO_COMPRESSION_SETTINGS = {
-    "small": {  # < 10MB
-        "crf": "23",
-        "preset": "medium",
-        "max_resolution": None,
-    },
-    "medium": {  # 10MB - 50MB
-        "crf": "25",
-        "preset": "medium",
-        "max_resolution": "854:480",
-    },
-    "large": {  # > 50MB
-        "crf": "27",
-        "preset": "fast",
-        "max_resolution": "1280:720",
+    # Unified settings - independent of source file size
+    "default": {
+        "target_bitrate": "1200k",  # 1.2 Mbps target
+        "max_bitrate": "2000k",     # 2 Mbps max
+        "bufsize": "4000k",         # 2x maxrate for smooth VBR
+        "preset": "medium",         # Balanced speed/quality
+        "max_resolution": "1920:1080",  # Max 1920x1080, aspect ratio preserved
     },
 }
 
