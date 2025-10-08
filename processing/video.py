@@ -29,7 +29,8 @@ def _build_ffmpeg_cmd(input_path: str, output_path: str, job: Dict) -> list[str]
         "-preset",
         "fast",  # Faster encoding, minimal quality loss
         "-vf",
-        "scale='min(1280,iw)':'min(720,ih)':force_original_aspect_ratio=decrease",  # Max 1280x720, keep aspect ratio
+        # Scale to max 1280x720, ensure dimensions divisible by 2 (H.264 requirement)
+        "scale='min(1280,iw)':'min(720,ih)':force_original_aspect_ratio=decrease,scale=trunc(iw/2)*2:trunc(ih/2)*2",
         "-an",  # Remove audio
         "-movflags",
         "+faststart",  # Enable streaming
