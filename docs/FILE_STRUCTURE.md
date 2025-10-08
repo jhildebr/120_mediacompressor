@@ -43,7 +43,7 @@ Media processing logic (FFmpeg, Pillow).
 | `image.py` | Image compression using Pillow | `process_image()` |
 
 **Technologies:**
-- FFmpeg (H.264 encoding, CRF 23)
+- FFmpeg (H.264 encoding, VBR @ 1.2 Mbps target)
 - Pillow (PNG/JPG optimization)
 
 ---
@@ -73,7 +73,7 @@ Configuration files.
 
 | File | Purpose |
 |------|---------|
-| `compression_config.py` | Video/image compression settings (CRF, quality, presets) |
+| `compression_config.py` | Video/image compression settings (bitrate, quality, presets) |
 
 ---
 

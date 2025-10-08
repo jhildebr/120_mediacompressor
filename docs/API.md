@@ -47,16 +47,20 @@ Complete API reference for the Azure Media Compression System.
 
 **Settings:**
 - **Video Codec:** libx264 (H.264)
-- **Quality (CRF):** 28 (range: 0-51, lower = better quality)
-- **Encoding Speed:** veryfast preset (optimized for speed)
-- **Max Resolution:** 1280x720 (scales down keeping aspect ratio if larger)
+- **Bitrate Mode:** VBR (Variable Bitrate)
+- **Target Bitrate:** 1.2 Mbps
+- **Max Bitrate:** 2 Mbps
+- **Buffer Size:** 4 MB (4000k)
+- **Encoding Speed:** medium preset (balanced quality/speed)
+- **Max Resolution:** 1920x1080 (scales down keeping aspect ratio if larger)
 - **Audio:** Removed (no audio track)
 - **Streaming:** +faststart enabled (web-optimized)
 
 **Expected Results:**
-- Significantly smaller file size (30-60% reduction typical)
-- Maintains good visual quality
-- Fast encoding for synchronous processing
+- Consistent bitrate output (VBR maintains quality while meeting target bitrate)
+- Output size depends on video duration (~9MB per minute @ 1.2 Mbps)
+- Maintains good visual quality at 1080p
+- Balanced encoding speed for synchronous processing
 - Web-optimized for streaming
 
 ---

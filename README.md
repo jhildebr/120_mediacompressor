@@ -281,13 +281,16 @@ Set in Azure Portal → App Service → Configuration:
 ### Videos
 - **Input:** MP4, MOV, AVI, WebM, FLV, WMV
 - **Output:** H.264 MP4 (no audio)
-- **Processing:** FFmpeg with fast compression
+- **Processing:** FFmpeg with VBR encoding
 
 **Compression Settings:**
 - **Video Codec:** libx264 (H.264)
-- **Quality (CRF):** 28 (range: 0-51, lower = better quality)
-- **Encoding Speed:** veryfast preset
-- **Max Resolution:** 1280x720 (scales down keeping aspect ratio if larger)
+- **Bitrate Mode:** VBR (Variable Bitrate)
+- **Target Bitrate:** 1.2 Mbps
+- **Max Bitrate:** 2 Mbps
+- **Buffer Size:** 4 MB (4000k)
+- **Encoding Speed:** medium preset (balanced quality/speed)
+- **Max Resolution:** 1920x1080 (scales down keeping aspect ratio if larger)
 - **Audio:** Removed (no audio track)
 - **Streaming:** +faststart enabled (web-optimized)
 
