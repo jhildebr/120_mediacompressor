@@ -326,7 +326,7 @@ def process_media(req: func.HttpRequest) -> func.HttpResponse:  # type: ignore[o
         )
 
 
-@app.route(route="upload", auth_level=func.AuthLevel.ANONYMOUS, methods=["POST"])
+@app.route(route="upload", auth_level=func.AuthLevel.ANONYMOUS, methods=["POST", "OPTIONS"])
 def upload_and_process(req: func.HttpRequest) -> func.HttpResponse:  # type: ignore[override]
     """Accept file upload, compress it, and return compressed file data.
 
@@ -339,6 +339,18 @@ def upload_and_process(req: func.HttpRequest) -> func.HttpResponse:  # type: ign
 
     Returns: Compressed file as binary blob
     """
+    # Handle CORS preflight
+    if req.method == "OPTIONS":
+        return func.HttpResponse(
+            status_code=200,
+            headers={
+                "Access-Control-Allow-Origin": "*",
+                "Access-Control-Allow-Methods": "POST, OPTIONS",
+                "Access-Control-Allow-Headers": "Content-Type",
+                "Access-Control-Expose-Headers": "X-Original-Size, X-Compressed-Size, X-Compression-Ratio, X-Processing-Time",
+            }
+        )
+
     blob_name = None
     blob_client = None
 
@@ -476,6 +488,9 @@ def upload_and_process(req: func.HttpRequest) -> func.HttpResponse:  # type: ign
                 "X-Compressed-Size": str(len(compressed_data)),
                 "X-Compression-Ratio": str(result.get("compression_ratio", 0)),
                 "X-Processing-Time": str(result.get("processing_time", 0)),
+                # CORS headers to expose custom headers to browser
+                "Access-Control-Allow-Origin": "*",
+                "Access-Control-Expose-Headers": "X-Original-Size, X-Compressed-Size, X-Compression-Ratio, X-Processing-Time",
             }
         )
 
