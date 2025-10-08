@@ -51,16 +51,17 @@ Complete API reference for the Azure Media Compression System.
 - **Target Bitrate:** 1.2 Mbps
 - **Max Bitrate:** 2 Mbps
 - **Buffer Size:** 4 MB (4000k)
-- **Encoding Speed:** medium preset (balanced quality/speed)
-- **Max Resolution:** 1920x1080 (scales down keeping aspect ratio if larger)
+- **Encoding Speed:** fast preset (faster encoding, minimal quality loss)
+- **Max Resolution:** 1280x720 (scales down keeping aspect ratio if larger)
 - **Audio:** Removed (no audio track)
 - **Streaming:** +faststart enabled (web-optimized)
 
 **Expected Results:**
 - Consistent bitrate output (VBR maintains quality while meeting target bitrate)
 - Output size depends on video duration (~9MB per minute @ 1.2 Mbps)
-- Maintains good visual quality at 1080p
-- Balanced encoding speed for synchronous processing
+- Excellent visual quality at 720p for instructional content
+- Fast encoding for synchronous processing
+- Small file sizes for quick loading during step transitions
 - Web-optimized for streaming
 
 ---

@@ -289,10 +289,12 @@ Set in Azure Portal → App Service → Configuration:
 - **Target Bitrate:** 1.2 Mbps
 - **Max Bitrate:** 2 Mbps
 - **Buffer Size:** 4 MB (4000k)
-- **Encoding Speed:** medium preset (balanced quality/speed)
-- **Max Resolution:** 1920x1080 (scales down keeping aspect ratio if larger)
+- **Encoding Speed:** fast preset (faster encoding, minimal quality loss)
+- **Max Resolution:** 1280x720 (scales down keeping aspect ratio if larger)
 - **Audio:** Removed (no audio track)
 - **Streaming:** +faststart enabled (web-optimized)
+
+**Rationale:** 720p @ 1.2 Mbps provides excellent quality for instructional content while minimizing file size for fast loading during step transitions.
 
 ## 🧹 Automatic Cleanup
 

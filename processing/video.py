@@ -12,7 +12,8 @@ from processing import generate_processed_blob_sas_url
 
 def _build_ffmpeg_cmd(input_path: str, output_path: str, job: Dict) -> list[str]:
     """Build FFmpeg command for VBR H.264 compression (web-compatible MP4)."""
-    # H.264 with VBR encoding, no audio, max 1920x1080
+    # H.264 with VBR encoding, no audio, max 1280x720
+    # Optimized for fast loading: 720p @ 1.2 Mbps is ideal for instructional content
     cmd: list[str] = [
         "ffmpeg",
         "-i",
@@ -26,9 +27,9 @@ def _build_ffmpeg_cmd(input_path: str, output_path: str, job: Dict) -> list[str]
         "-bufsize",
         "4000k",  # Buffer size (2x maxrate for smooth VBR)
         "-preset",
-        "medium",  # Balanced speed/quality
+        "fast",  # Faster encoding, minimal quality loss
         "-vf",
-        "scale='min(1920,iw)':'min(1080,ih)':force_original_aspect_ratio=decrease",  # Max 1920x1080, keep aspect ratio
+        "scale='min(1280,iw)':'min(720,ih)':force_original_aspect_ratio=decrease",  # Max 1280x720, keep aspect ratio
         "-an",  # Remove audio
         "-movflags",
         "+faststart",  # Enable streaming
