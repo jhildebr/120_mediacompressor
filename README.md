@@ -4,6 +4,9 @@
 
 Compress images and videos efficiently using FFmpeg and Pillow, deployed as a containerized application on Azure.
 
+**Current Status:** 🟢 **Phase 1 Complete** - Direct upload endpoint (`/api/upload`) deployed and tested
+**Next Phase:** Phase 2 - Migrate to SIMPI resource group for unified storage
+
 ---
 
 ## 🎯 Overview
@@ -101,7 +104,8 @@ curl -X POST https://mediaprocessor-b2.azurewebsites.net/api/process \
 |----------|--------|------|-------------|
 | `/api/health` | GET | No | Health check and uptime |
 | `/api/version` | GET | No | Deployment version info |
-| `/api/process` | POST | No | Process uploaded file |
+| `/api/upload` | POST | No | **[Phase 1]** Direct file upload & compression |
+| `/api/process` | POST | No | **[Phase 2]** Process blob from storage |
 | `/api/status` | GET | **Yes** | Query job status by blob name |
 
 ### POST /api/process
