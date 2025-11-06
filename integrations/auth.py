@@ -10,30 +10,43 @@ import azure.functions as func
 def validate_api_key(req: func.HttpRequest) -> tuple[bool, Optional[str]]:
     """Validate API key from request headers.
 
+    Supports multiple API keys from environment variables:
+    - COMPRESSION_API_KEY_DEV: Development environment key
+    - COMPRESSION_API_KEY_PROD: Production environment key
+
     Args:
         req: Azure Function HTTP request
 
     Returns:
         Tuple of (is_valid, error_message)
     """
-    # Get expected API key from environment
-    expected_api_key = os.environ.get("API_KEY", "")
+    # Get valid API keys from environment (support multiple keys)
+    valid_keys = []
 
-    if not expected_api_key:
-        logging.warning("API_KEY environment variable not set - authentication disabled")
+    # Compression-specific keys
+    dev_key = os.environ.get("COMPRESSION_API_KEY_DEV", "")
+    prod_key = os.environ.get("COMPRESSION_API_KEY_PROD", "")
+
+    if dev_key:
+        valid_keys.append(dev_key)
+    if prod_key:
+        valid_keys.append(prod_key)
+
+    if not valid_keys:
+        logging.warning("No API keys configured - authentication disabled")
         return True, None
 
     # Check for API key in headers
-    api_key = req.headers.get("X-API-Key") or req.headers.get("Authorization")
+    api_key = req.headers.get("X-Api-Key") or req.headers.get("X-API-Key") or req.headers.get("Authorization")
 
     # Handle Bearer token format
     if api_key and api_key.startswith("Bearer "):
         api_key = api_key[7:]  # Remove "Bearer " prefix
 
     if not api_key:
-        return False, "Missing API key. Provide X-API-Key header or Authorization: Bearer <key>"
+        return False, "Missing API key. Provide X-Api-Key header or Authorization: Bearer <key>"
 
-    if api_key != expected_api_key:
+    if api_key not in valid_keys:
         logging.warning("Invalid API key provided")
         return False, "Invalid API key"
 

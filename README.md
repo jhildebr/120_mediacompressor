@@ -104,6 +104,7 @@ curl -X POST https://mediaprocessor-b2.azurewebsites.net/api/process \
 |----------|--------|------|-------------|
 | `/api/health` | GET | No | Health check and uptime |
 | `/api/version` | GET | No | Deployment version info |
+| `/api/warmup` | GET/HEAD | **Yes** | Lightweight warmup – call before first upload to bring instance online |
 | `/api/upload` | POST | No | **[Phase 1]** Direct file upload & compression |
 | `/api/process` | POST | No | **[Phase 2]** Process blob from storage |
 | `/api/status` | GET | **Yes** | Query job status by blob name |
@@ -168,6 +169,18 @@ X-API-Key: your-api-key
 ## 🔧 Frontend Integration
 
 ### React/TypeScript Example
+
+Before the first upload in a session, call the new warmup endpoint to bring
+the worker online (supports `GET` and `HEAD`):
+
+```typescript
+await fetch('https://mediaprocessor-b2.azurewebsites.net/api/warmup', {
+  method: 'HEAD',
+  headers: { 'X-Api-Key': apiKey },
+});
+```
+
+Then proceed with the upload/process flow:
 
 ```typescript
 async function uploadAndCompress(file: File) {

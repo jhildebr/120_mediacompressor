@@ -59,6 +59,7 @@ def health(req: func.HttpRequest) -> func.HttpResponse:  # type: ignore[override
                 "POST /api/upload",
                 "GET /api/status",
                 "GET /api/health",
+                "GET /api/warmup",
                 "GET /api/version",
             ],
         }
@@ -111,6 +112,62 @@ def version_check(req: func.HttpRequest) -> func.HttpResponse:  # type: ignore[o
             mimetype="application/json",
             status_code=500,
         )
+
+
+@app.route(route="warmup", auth_level=func.AuthLevel.ANONYMOUS, methods=["GET", "HEAD"])
+def warmup(req: func.HttpRequest) -> func.HttpResponse:  # type: ignore[override]
+    """Dedicated warmup endpoint used by clients before uploads.
+
+    Establishes connections to critical dependencies so that the first real
+    upload request avoids cold-start overhead. Requires the standard API key
+    to prevent unauthenticated probing.
+    """
+
+    # Require API key for consistency with upload endpoint
+    auth_response = require_auth(req)
+    if auth_response:
+        return auth_response
+
+    storage_status = "skipped"
+    storage_error: str | None = None
+
+    try:
+        connection_string = os.environ.get("AzureWebJobsStorage")
+        if connection_string:
+            # Instantiate the blob service client to warm caches / sockets
+            BlobServiceClient.from_connection_string(connection_string)
+            storage_status = "ready"
+        else:
+            storage_status = "missing-connection-string"
+    except Exception as exc:  # pragma: no cover - defensive
+        storage_status = "error"
+        storage_error = str(exc)
+
+    headers = {
+        "Access-Control-Allow-Origin": "*",
+        "Cache-Control": "no-store",
+    }
+
+    if req.method == "HEAD":
+        # Minimal response for HEAD requests – sufficient for warmup pings
+        return func.HttpResponse(status_code=200, headers=headers)
+
+    body = {
+        "status": "warm",
+        "uptime_seconds": int(time.time() - START_TIME),
+        "timestamp": datetime.utcnow().isoformat(),
+        "storage": storage_status,
+    }
+
+    if storage_error:
+        body["storage_error"] = storage_error
+
+    return func.HttpResponse(
+        body=json.dumps(body),
+        mimetype="application/json",
+        status_code=200,
+        headers=headers,
+    )
 
 
 @app.route(route="wherefrom", auth_level=func.AuthLevel.ANONYMOUS)
@@ -326,16 +383,18 @@ def process_media(req: func.HttpRequest) -> func.HttpResponse:  # type: ignore[o
         )
 
 
-@app.route(route="upload", auth_level=func.AuthLevel.ANONYMOUS, methods=["POST", "OPTIONS"])
+@app.route(route="upload", auth_level=func.AuthLevel.ANONYMOUS, methods=["GET", "POST", "OPTIONS"])
 def upload_and_process(req: func.HttpRequest) -> func.HttpResponse:  # type: ignore[override]
     """Accept file upload, compress it, and return compressed file data.
 
-    INTERIM ENDPOINT FOR TESTING - Not for production use.
-    This endpoint accepts direct file uploads and returns the compressed file.
+    GET /api/upload - Legacy warmup endpoint (requires API key) – use /api/warmup instead
+    POST /api/upload - File upload and compression (requires API key)
+    OPTIONS /api/upload - CORS preflight
 
-    POST /api/upload
-    Content-Type: multipart/form-data
-    Body: file field with file data
+    POST endpoint:
+        Content-Type: multipart/form-data
+        Body: file field with file data
+        Headers: X-Api-Key: <your-api-key>
 
     Returns: Compressed file as binary blob
     """
@@ -345,11 +404,51 @@ def upload_and_process(req: func.HttpRequest) -> func.HttpResponse:  # type: ign
             status_code=200,
             headers={
                 "Access-Control-Allow-Origin": "*",
-                "Access-Control-Allow-Methods": "POST, OPTIONS",
-                "Access-Control-Allow-Headers": "Content-Type",
+                "Access-Control-Allow-Methods": "GET, POST, OPTIONS",
+                "Access-Control-Allow-Headers": "Content-Type, X-Api-Key, X-Warmup",
                 "Access-Control-Expose-Headers": "X-Original-Size, X-Compressed-Size, X-Compression-Ratio, X-Processing-Time",
             }
         )
+
+    # Handle warmup GET request
+    if req.method == "GET":
+        # Check authentication for warmup
+        auth_response = require_auth(req)
+        if auth_response:
+            return auth_response
+
+        # Check if this is a warmup request
+        is_warmup = req.headers.get("X-Warmup") == "true"
+
+        if is_warmup:
+            logging.info("Warmup request received and authenticated")
+            return func.HttpResponse(
+                body=json.dumps({"status": "warm", "message": "Function is ready"}),
+                mimetype="application/json",
+                status_code=200,
+                headers={
+                    "Access-Control-Allow-Origin": "*",
+                }
+            )
+        else:
+            # Regular GET request - return endpoint info
+            return func.HttpResponse(
+                body=json.dumps({
+                    "endpoint": "/api/upload",
+                    "methods": ["GET", "POST", "OPTIONS"],
+                    "description": "Media compression endpoint. POST to upload and compress files. GET with X-Warmup header to warm function.",
+                }),
+                mimetype="application/json",
+                status_code=200,
+                headers={
+                    "Access-Control-Allow-Origin": "*",
+                }
+            )
+
+    # Check authentication for POST requests
+    auth_response = require_auth(req)
+    if auth_response:
+        return auth_response
 
     blob_name = None
     blob_client = None
